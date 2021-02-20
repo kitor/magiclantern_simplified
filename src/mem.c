@@ -178,6 +178,7 @@ static struct mem_allocator allocators[] = {
     },
 #endif
 
+#if 0
     /* must be completely free when navigating Canon menus, so only use it as a last resort */
     {
         .name = "shoot_malloc",
@@ -203,8 +204,9 @@ static struct mem_allocator allocators[] = {
         .minimum_alloc_size = 64 * 1024,
         .minimum_free_space = 256 * 1024,
     },
+#endif
 
-#if 1
+#if 0
     /* large buffers (30-40 MB), but you can't even take a picture with one of those allocated */
     {
         .name = "srm_malloc",

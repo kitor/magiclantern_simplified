@@ -103,6 +103,10 @@ THUMB_FN(0xE006463C,  vsnprintf)                            /* called by LogFile
 /** Startup **/
 DATA_PTR(    0xE074,  additional_version)
 
+/** Bitmap **/
+/* WRONG! Probably DNE since R has YUV VRAM */
+DATA_PTR(0xDEADBEEF,  LCD_Palette)
+
 /** Recursive locks **/
 /* So far found in ROM. Called from RAM on D5 machines) */
 THUMB_FN(0xE02504A4,  AcquireRecursiveLock)                 /* SystemIF::KerRLock.c */

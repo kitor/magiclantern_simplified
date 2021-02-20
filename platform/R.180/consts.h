@@ -19,3 +19,12 @@
 // see "Malloc Information"
 #define MALLOC_STRUCT 0x2885C
 #define MALLOC_FREE_MEMORY (MEM(MALLOC_STRUCT + 8) - MEM(MALLOC_STRUCT + 0x1C)) // "Total Size" - "Allocated Size"
+
+/* hacks */
+#define HALFSHUTTER_PRESSED 0
+#define DISPLAY_IS_ON 1
+#define PLAY_MODE 0
+
+#define BFNT_CHAR_CODES 0
+#define BFNT_BITMAP_OFFSET 0
+#define BFNT_BITMAP_DATA 0
