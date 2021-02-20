@@ -4,6 +4,9 @@
  */
 
 #include "dryos.h"
+#include "version.h"
+#include "bmp.h"
+#include "fw-signature.h"
 
 extern void dump_file(char* name, uint32_t addr, uint32_t size);
 extern void memmap_info(void);
@@ -11,162 +14,77 @@ extern void malloc_info(void);
 extern void sysmem_info(void);
 extern void smemShowFix(void);
 
-static void led_blink(int times, int delay_on, int delay_off)
+static int _hold_your_horses = 1; // 0 after config is read
+int ml_started = 0; // 1 after ML is fully loaded
+int ml_gui_initialized = 0; // 1 after gui_main_task is started
+
+/* stolen from debug.c */
+
+void _card_led_on()
+{
+    *(volatile uint32_t*) (CARD_LED_ADDRESS) = (LEDON);
+}
+
+void _card_led_off()
+{
+    *(volatile uint32_t*) (CARD_LED_ADDRESS) = (LEDOFF);
+}
+
+void info_led_on()
+{
+    #ifdef CONFIG_VXWORKS
+    LEDBLUE = LEDON;
+    #elif defined(CONFIG_BLUE_LED)
+    call("EdLedOn");
+    #else
+    _card_led_on();
+    #endif
+}
+void info_led_off()
+{
+    #ifdef CONFIG_VXWORKS
+    LEDBLUE = LEDOFF;
+    #elif defined(CONFIG_BLUE_LED)
+    call("EdLedOff");
+    #else
+    _card_led_off();
+    #endif
+}
+void info_led_blink(int times, int delay_on, int delay_off)
 {
     for (int i = 0; i < times; i++)
     {
-        MEM(CARD_LED_ADDRESS) = LEDON;
+        info_led_on();
         msleep(delay_on);
-        MEM(CARD_LED_ADDRESS) = LEDOFF;
+        info_led_off();
         msleep(delay_off);
     }
 }
 
 extern int uart_printf(const char * fmt, ...);
 
-#define BACKUP_BLOCKSIZE 0x0010000
-
-#undef malloc
-#undef free
-#undef _alloc_dma_memory
-#define malloc _alloc_dma_memory
-#define free _free_dma_memory
-extern void * _alloc_dma_memory(size_t);
-extern void _free_dma_memory(void *);
-
-#define FIO_CreateFile _FIO_CreateFile
-extern FILE* _FIO_CreateFile(const char* filename );
-
-#define FIO_GetFileSize _FIO_GetFileSize
-extern int _FIO_GetFileSize(const char * filename, uint32_t * size);
-
-#define FIO_WriteFile _FIO_WriteFile
-extern int _FIO_WriteFile( FILE* stream, const void* ptr, size_t count );
-
-#define FIO_RemoveFile _FIO_RemoveFile
-extern int _FIO_RemoveFile(const char * filename);
-
-extern int FIO_Flush(const char * filename);
-
-static void backup_region(char *file, uint32_t base, uint32_t length)
+static void hello_world()
 {
-    FILE *handle = NULL;
-    uint32_t size = 0;
-    uint32_t pos = 0;
-    
-    /* already backed up that region? */
-    if((FIO_GetFileSize( file, &size ) == 0) && (size == length) )
+    _mem_init();
+    _find_ml_card();
+    _load_fonts();
+
+    int sig = compute_signature((int*)SIG_START, 0x10000);
+    while(1)
     {
-        return;
+        bmp_printf(FONT_LARGE, 50, 50, "Yo, man!");
+        bmp_printf(FONT_LARGE, 50, 400, "firmware signature = 0x%x", sig);
+        info_led_blink(1, 500, 500);
     }
-    
-    /* no, create file and store data */
-
-    void* buf = malloc(BACKUP_BLOCKSIZE);
-    if (!buf) return;
-
-    FIO_RemoveFile(file);
-    handle = FIO_CreateFile(file);
-    if (handle)
-    {
-      while(pos < length)
-      {
-         uint32_t blocksize = BACKUP_BLOCKSIZE;
-        
-          if(length - pos < blocksize)
-          {
-              blocksize = length - pos;
-          }
-          
-          /* copy to RAM before saving, because ROM is slow and may interfere with LiveView */
-          memcpy(buf, &((uint8_t*)base)[pos], blocksize);
-          
-          FIO_WriteFile(handle, buf, blocksize);
-          pos += blocksize;
-
-          /* throttle to prevent freezing */
-          msleep(10);
-      }
-      FIO_CloseFile(handle);
-      FIO_Flush(file);
-    }
-    
-    free(buf);
 }
 
-static void DUMP_ASM dump_task()
+/* This runs ML initialization routines and starts user tasks.
+ * Unlike init_task, from here we can do file I/O and others.
+ */
+static void my_big_init_task()
 {
-    uart_printf("Hello from %s!\n", get_current_task_name());
-
-    /* LED blinking test */
-    led_blink(2, 500, 500);
-
-#if 0
-    void (*SetLED)(int led, int action) = (void *) 0xE0764D59;  /* EOS R 1.1.0 */
-    for (int i = 0; i < 13; i++)
-    {
-        qprintf("LED %d\n", i);
-        SetLED(i, 0);   /* LED ON */
-        msleep(1000);
-        SetLED(i, 1);   /* LED OFF */
-        msleep(1000);
-    }
-#endif
-
-    /* print memory info on QEMU console */
-    memmap_info();
-    malloc_info();
-    sysmem_info();
-    smemShowFix();
-
-
-    /* dump ROM (this method gives garbage on M50, why?) */
-    //dump_file("ROM0.BIN", 0xE0000000, 0x02000000);
-    //dump_file("ROM1.BIN", 0xF0000000, 0x02000000); // - might be slow
-
-    /* dump ROM */
-    backup_region("B:/ROM0.BIN", 0xE0000000, 0x02000000);
-    backup_region("B:/ROM1.BIN", 0xF0000000, 0x01000000);
- 
-    /* dump RAM */
-    //dump_file("RAM4.BIN", 0x40000000, 0x40000000); // - large file; decrease size if it locks up
-    //dump_file("DF00.BIN", 0xDF000000, 0x00010000); // - size unknown; try increasing
-
-#ifdef CONFIG_MARK_UNUSED_MEMORY_AT_STARTUP
-    /* wait for the user to exercise the camera a bit */
-    /* e.g. open Canon menu, enter LiveView, take a picture, record a video */
-    led_blink(50, 500, 500);
-
-    /* what areas of the main memory appears unused? */
-    for (uint32_t i = 0; i < 2047; i++)
-    {
-        /* EOS R: all of the RAM above 0x40000000 is uncacheable */
-        /* our UNCACHEABLE macro is not going to work any more */
-        uint32_t empty = 1;
-        uint32_t start = (i * 1024 * 1024) + 0x40000000;
-        uint32_t end = ((i+1) * 1024 * 1024 - 1) + 0x40000000;
-
-        for (uint32_t p = start; p <= end; p += 4)
-        {
-            uint32_t v = MEM(p);
-            if (v != 0x124B1DE0 /* RA(W)VIDEO*/)
-            {
-                empty = 0;
-                break;
-            }
-        }
-
-        //DryosDebugMsg(0, 15, "%08X-%08X: %s", start, end, empty ? "maybe unused" : "used");
-        uart_printf("%08X-%08X: %s\n", start, end, empty ? "maybe unused" : "used");
-    }
-#endif
-
-    /* attempt to take a picture */
-    //call("Release");
-    //msleep(2000);
-
-    /* save a diagnostic log */
-    call("dumpf");
+    hello_world();
+    return;
 }
 
 /* called before Canon's init_task */
@@ -180,11 +98,51 @@ void boot_post_init_task(void)
 {
     msleep(1000);
 
-    task_create("dump_task", 0x1e, 0x1000, dump_task, 0 );
+    #if !defined(CONFIG_NO_ADDITIONAL_VERSION)
+        // Re-write the version string.
+        // Don't use strcpy() so that this can be done
+        // before strcpy() or memcpy() are located.
+        extern char additional_version[];
+        additional_version[0] = '-';
+        additional_version[1] = 'm';
+        additional_version[2] = 'l';
+        additional_version[3] = '-';
+        additional_version[4] = build_version[0];
+        additional_version[5] = build_version[1];
+        additional_version[6] = build_version[2];
+        additional_version[7] = build_version[3];
+        additional_version[8] = build_version[4];
+        additional_version[9] = build_version[5];
+        additional_version[10] = build_version[6];
+        additional_version[11] = build_version[7];
+        additional_version[12] = build_version[8];
+        additional_version[13] = '\0';
+    #endif
+
+    // wait for firmware to initialize
+    while (!bmp_vram_raw()) msleep(100);
+
+    task_create("ml_init", 0x1e, 0x4000, my_big_init_task, 0 );
 }
 
-/* used by font_draw */
-/* we don't have a valid display buffer yet */
-void disp_set_pixel(int x, int y, int c)
-{
-}
+/** Dummies **/
+void ml_assert_handler(char* msg, char* file, int line, const char* func) {};
+void bvram_mirror_init(){};
+void _update_vram_params(){};
+void redraw_after(int time) {}
+int hdmi_code = 0;
+void draw_line(int x1, int y1, int x2, int y2, int cl){}
+void beep() {} ;
+void EngDrvOut(uint32_t reg, uint32_t value) {}
+int printf(const char * format, ...) { return 0; }
+int y_times_BMPPITCH_cache[BMP_H_PLUS - BMP_H_MINUS];
+
+
+/** kill exmem */
+struct memSuite * _shoot_malloc_suite(size_t size) { return 0; }
+struct memSuite * _shoot_malloc_suite_contig(size_t size) { return 0; }
+void _shoot_free_suite(struct memSuite * suite) {}
+struct memSuite * _srm_malloc_suite(int num) { return 0; }
+void _srm_free_suite(struct memSuite * suite) {}
+void* _shoot_malloc(size_t size) { return (void*)0x0; }
+void _shoot_free(void *ptr) { return; }

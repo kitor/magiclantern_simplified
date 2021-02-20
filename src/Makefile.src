@@ -57,7 +57,7 @@ ML_BOOTFLAGS_OBJ = bootflags.o
 endif
 
 ifeq ($(ML_AF_PATTERNS_OBJ), n)
-ML_AF_PATTERNS_OBJ = 
+ML_AF_PATTERNS_OBJ =
 else ifndef ML_AF_PATTERNS_OBJ
 ML_AF_PATTERNS_OBJ = af_patterns.o
 endif
@@ -81,9 +81,16 @@ ML_OBJS-y = \
 	magiclantern.lds \
 	$(ML_ENTRY_OBJ) \
 	$(ML_BOOT_OBJ) \
+	imgconv.o \
 	$(ML_MINIMAL_OBJ) \
+	version.o \
+	fio-ml.o \
+	mem.o \
+	ico.o \
+	bmp.o \
+	rbf_font.o \
+	stdio.o \
 	cache.o \
-	font_direct.o \
 	$(PLATFORM_DIR)/stubs.o
 
 else ifeq ($(ML_SRC_PROFILE),installer)
@@ -418,4 +425,3 @@ FORCE:
 
 # fixme: better place for this?
 include $(BUILD_TOOLS_DIR)/Makefile
-
