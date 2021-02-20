@@ -589,6 +589,7 @@ void _load_fonts()
     if (fonts_loaded) return;
     fonts_loaded = 1;
     
+    #ifndef CONFIG_DIGIC_VIII  //D8 doesn't have bitmap font in code
     /* fake font for Canon font backend, with the same metrics */
     font * canon_font = new_font();
     canon_font->hdr.height = 40;
@@ -603,6 +604,7 @@ void _load_fonts()
         font_dynamic[i].height = 40;
         font_dynamic[i].width = rbf_char_width((void*)font_dynamic[i].bitmap, '0');
     }
+    #endif
 
     /* load some fonts */
     font_by_name("term12", COLOR_BLACK, COLOR_WHITE);
