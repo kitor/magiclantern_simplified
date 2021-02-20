@@ -378,7 +378,14 @@ int FIO_GetFileSize(const char * filename, uint32_t * size)
 {
     char new_filename[FIO_MAX_PATH_LENGTH];
     fixup_filename(new_filename, filename, sizeof(new_filename));
-    return _FIO_GetFileSize(new_filename, size);
+    #ifdef CONFIG_DIGIC_VIII
+        uint32_t size64[2];
+        int code = _FIO_GetFileSize(new_filename, &size64);
+        *size = size64[0];
+        return code;
+    #else
+        return _FIO_GetFileSize(new_filename, size);
+    #endif
 }
 
 int _FIO_RemoveFile(const char * filename);
