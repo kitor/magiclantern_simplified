@@ -15,3 +15,7 @@
 #define HIJACK_FIXBR_BZERO32        0xE0040152   /* called from cstart */
 #define HIJACK_FIXBR_CREATE_ITASK   0xE00401B4   /* called from cstart */
 #define HIJACK_INSTR_MY_ITASK       0xE00401E4   /* address of init_task passed to create_init_task */
+
+// see "Malloc Information"
+#define MALLOC_STRUCT 0x2885C
+#define MALLOC_FREE_MEMORY (MEM(MALLOC_STRUCT + 8) - MEM(MALLOC_STRUCT + 0x1C)) // "Total Size" - "Allocated Size"

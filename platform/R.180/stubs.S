@@ -98,3 +98,19 @@ THUMB_FN(0xE00CDEF4,  sysmem_info)                          /* System Memory Inf
 /** Misc **/
 THUMB_FN(0xE054D31C,  uart_printf)
 THUMB_FN(0xE006463C,  vsnprintf)                            /* called by LogFile_printf(..., "*Data Lost*\n", ...); the one called by DebugMsg only knows %s */
+
+/** New stubs **/
+/** Startup **/
+DATA_PTR(    0xE074,  additional_version)
+
+/** Recursive locks **/
+/* So far found in ROM. Called from RAM on D5 machines) */
+THUMB_FN(0xE02504A4,  AcquireRecursiveLock)                 /* SystemIF::KerRLock.c */
+THUMB_FN(0xE0554740,  CreateRecursiveLock)                  /* SystemIF::KerMisc.c  */
+THUMB_FN(0xE0250516,  ReleaseRecursiveLock)                 /* SystemIF::KerRLock.c */
+
+/** Semaphores **/
+/* So far found in ROM. Called from RAM on D5 machines) */
+THUMB_FN(0xE0562DD4,  create_named_semaphore)
+THUMB_FN(0xE0562f4A,  give_semaphore)                       /* SystemIF::KerSem.c   */
+THUMB_FN(0xE0562ED0,  take_semaphore)                       /* SystemIF::KerSem.c   */
