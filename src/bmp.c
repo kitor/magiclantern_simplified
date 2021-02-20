@@ -29,6 +29,7 @@
 #include "font.h"
 #include <stdarg.h>
 #include "propvalues.h"
+#include "imgconv.h"
 
 //~ int bmp_enabled = 1;
 
@@ -146,6 +147,46 @@ inline void bmp_putpixel_fast(uint8_t * const bvram, int x, int y, uint8_t color
     #ifdef CONFIG_VXWORKS
     char* p = (char*)&bvram[(x)/2 + (y)/2 * BMPPITCH];
     SET_4BIT_PIXEL(p, x, color);
+    #elif defined(CONFIG_DIGIC_678)
+    uint8_t * bmp = bmp_vram_raw();
+
+    struct MARV * MARV = bmp_marv();
+    // UYVY display, must convert
+    uint32_t c = 0x000000FF;
+    if(color == 0x1)
+      c = 0xFFFFFFFF;
+
+    uint32_t uyvy = rgb2yuv422(c >> 24,
+                              (c >> 16) & 0xff,
+                              (c >> 8) & 0xff);
+    uint8_t alpha = c & 0xff;
+
+    if (MARV->opacity_data)
+    {
+        /* 80D, 200D */
+        /* adapted from names_are_hard, https://pastebin.com/Vt84t4z1 */
+        uint32_t * offset = (uint32_t *) &bmp[(x & ~1) * 2 + y * 2 * MARV->width];
+        if (x % 2) {
+            *offset = (*offset & 0x0000FF00) | (uyvy & 0xFFFF00FF);     /* set U, Y2, V, keep Y1 */
+        } else {
+            *offset = (*offset & 0xFF000000) | (uyvy & 0x00FFFFFF);     /* set U, Y1, V, keep Y2 */
+        }
+        MARV->opacity_data[x + y * MARV->width] = alpha;
+    }
+    else
+    {
+        /* 5D4, M50 */
+        /* adapted from https://bitbucket.org/chris_miller/ml-fork/src/d1f1cdf978acc06c6fd558221962c827a7dc28f8/src/minimal-d678.c?fileviewer=file-view-default#minimal-d678.c-175 */
+        // VRAM layout is UYVYAA (each character is one byte) for pixel pairs
+        uint32_t * offset = (uint32_t *) &bmp[(x & ~1) * 3 + y * 3 * MARV->width];   /* unaligned pointer */
+        if (x % 2) {
+            *offset = (*offset & 0x0000FF00) | (uyvy & 0xFFFF00FF);     /* set U, Y2, V, keep Y1 */
+        } else {
+            *offset = (*offset & 0xFF000000) | (uyvy & 0x00FFFFFF);     /* set U, Y1, V, keep Y2 */
+        }
+        uint8_t * opacity = (uint8_t *) offset + 4 + x % 2;
+        *opacity = alpha;
+    }
     #else
     bvram[x + y * BMPPITCH] = color;
     #endif
