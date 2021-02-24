@@ -101,7 +101,7 @@ THUMB_FN(0xE006463C,  vsnprintf)                            /* called by LogFile
 
 /** New stubs **/
 /** Startup **/
-DATA_PTR(    0xE074,  additional_version)
+DATA_PTR(    0xE079,  additional_version)
 
 /** Recursive locks **/
 /* So far found in ROM. Called from RAM on D5 machines) */
