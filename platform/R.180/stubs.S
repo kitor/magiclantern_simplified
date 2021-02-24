@@ -101,7 +101,7 @@ THUMB_FN(0xE006463C,  vsnprintf)                            /* called by LogFile
 
 /** New stubs **/
 /** Startup **/
-DATA_PTR(    0xE074,  additional_version)
+DATA_PTR(    0xE079,  additional_version)
 
 /** Bitmap **/
 /* WRONG! Probably DNE since R has YUV VRAM */
