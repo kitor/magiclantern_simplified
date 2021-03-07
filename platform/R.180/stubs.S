@@ -39,7 +39,7 @@ THUMB_FN(0xE02C6D40,  dcache_clean)                         /* loop with MCR p15
 THUMB_FN(0xE02C6E14,  icache_invalidate)                    /* loop with MCR p15 c7,c5,1; c7,c1,6; c7,c1,0; ISB */
 THUMB_FN(0xE004022C,  init_task)                            /* USER_MEM size checking, dmSetup, termDriverInit, stdlibSetup etc */
 
-/** Tasks **/
+/** Task info **/
 DATA_PTR(    0x1010,  current_interrupt)                    /* from interrupt handler (VBAR + 0x18); where the interrupt ID is stored */
 DATA_PTR(    0x1028,  current_task)                         /* from task_create; pointer to the current task structure */
 THUMB_FN(0xE0549952,  msleep)                               /* argument is always multiple of 10 */
@@ -102,6 +102,11 @@ THUMB_FN(0xE006463C,  vsnprintf)                            /* called by LogFile
 /** New stubs **/
 /** Startup **/
 DATA_PTR(    0xE079,  additional_version)
+
+/** Tasks **/
+THUMB_FN(0XE00FD122,  is_taskid_valid)                      /* from exmem, now have 4 args instead of 3 */
+//DATA_PTR(0xDEADBEEF,  task_trampoline)
+//DATA_PTR(0xDEADBEEF,  task_max)
 
 /** Bitmap **/
 /* WRONG! Probably DNE since R has YUV VRAM */
