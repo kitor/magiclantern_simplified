@@ -250,6 +250,22 @@ task_create_##ENTRY = { \
         .entry          = ENTRY, \
 }
 
+/** Call functons on shutdown */
+struct call_on_shutdown
+{
+        const char *            name;
+        void                    (*entry)( void * );
+        void *                  arg;
+};
+
+#define SHUTDOWN_FUNC( NAME, ENTRY ) \
+struct call_on_shutdown \
+__attribute__((section(".shutdown_funcs"))) \
+call_on_shutdown_##ENTRY = { \
+        .name           = NAME, \
+        .entry          = ENTRY, \
+}
+
 extern int ml_shutdown_requested;
 
 #define TASK_LOOP for (int k = 0; !ml_shutdown_requested ; k++)

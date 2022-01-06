@@ -73,6 +73,12 @@ SECTIONS
 		*(.init_funcs)
 		_init_funcs_end = .;
 
+		/* List of magiclantern shutdown funcs to be called  */
+		. = ALIGN(8);
+		_shutdown_funcs_start = .;
+		*(.shutdown_funcs)
+		_shutdown_funcs_end = .;
+
 		/* List of PTP handlers to be installed */
 		. = ALIGN(8);
 		_ptp_handlers_start = .;

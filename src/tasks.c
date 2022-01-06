@@ -349,26 +349,31 @@ MENU_UPDATE_FUNC(tasks_print)
 #include "gps.h"
 #endif
 
+static void call_shutdown_funcs()
+{
+    extern struct call_on_shutdown _shutdown_funcs_start[];
+    extern struct call_on_shutdown _shutdown_funcs_end[];
+    struct call_on_shutdown * shutdown_func = _shutdown_funcs_start;
+
+    for( ; shutdown_func < _shutdown_funcs_end ; shutdown_func++ )
+    {
+        (*shutdown_func->entry)(shutdown_func->arg);
+    }
+}
+
 static void ml_shutdown()
 {
     check_pre_shutdown_flag();
-#ifdef FEATURE_CROP_MODE_HACK
-    movie_crop_hack_disable();
-#endif
     ml_shutdown_requested = 1;
-    
+
     info_led_on();
     _card_led_on();
+
+    call_shutdown_funcs();
     restore_af_button_assignment_at_shutdown();
-#ifdef FEATURE_GPS_TWEAKS
-    gps_tweaks_shutdown_hook();
-#endif    
+
     config_save_at_shutdown();
-#if defined(CONFIG_MODULES)
-    /* to refactor with CBR */
-    extern int module_shutdown();
-    module_shutdown();
-#endif
+
     info_led_on();
     _card_led_on();
 }

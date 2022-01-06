@@ -76,7 +76,7 @@ static char* get_gps_flag_file()
     return file;
 }
 
-void gps_tweaks_shutdown_hook()
+void gps_tweaks_shutdown()
 {
     if (gps_powersave_tweak)
     {
@@ -143,10 +143,12 @@ static struct menu_entry gps_menus[] = {
 
 void gps_tweaks_init()
 {
+    gps_tweaks_startup_hook();
     menu_add( "Prefs", gps_menus, COUNT(gps_menus) );
 }
 
 INIT_FUNC(__FILE__, gps_tweaks_init);
+SHUTDOWN_FUNC(__FILE__, gps_tweaks_shutdown);
 
 #endif // FEATURE_GPS_TWEAKS
 

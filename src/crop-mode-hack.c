@@ -91,6 +91,12 @@ void crop_mode_hack_init()
     menu_add( "Movie", crop_hack_menus, COUNT(crop_hack_menus) );
 }
 
+void crop_mode_hack_shutdown()
+{
+    movie_crop_hack_disable();
+}
+
 INIT_FUNC(__FILE__, crop_mode_hack_init);
+SHUTDOWN_FUNC(__FILE__, crop_mode_hack_shutdown);
 
 #endif

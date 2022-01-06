@@ -481,10 +481,6 @@ static void my_big_init_task()
     
     debug_init_stuff();
 
-    #ifdef FEATURE_GPS_TWEAKS
-    gps_tweaks_startup_hook();
-    #endif
-
     _hold_your_horses = 0; // config read, other overriden tasks may start doing their job
 
     // Create all of our auto-create tasks

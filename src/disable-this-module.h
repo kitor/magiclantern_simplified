@@ -16,6 +16,10 @@
 #undef INIT_FUNC
 #endif
 
+#ifdef SHUTDOWN_FUNC
+#undef SHUTDOWN_FUNC
+#endif
+
 
 #define PROP_HANDLER(id) \
 static void _prop_handler_##id( \
@@ -27,7 +31,7 @@ static void _prop_handler_##id( \
 
 
 
-#define TASK_CREATE( NAME, ENTRY, ARG, PRIORITY, FLAGS ) 
-#define TASK_OVERRIDE( NAME, ENTRY ) 
-#define INIT_FUNC( NAME, ENTRY ) 
-
+#define TASK_CREATE( NAME, ENTRY, ARG, PRIORITY, FLAGS )
+#define TASK_OVERRIDE( NAME, ENTRY )
+#define INIT_FUNC( NAME, ENTRY )
+#define SHUTDOWN_FUNC( NAME, ENTRY )

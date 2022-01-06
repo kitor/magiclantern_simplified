@@ -2139,19 +2139,18 @@ void module_save_configs()
 }
 
 /* clean shutdown, unlink lockfile */
-int module_shutdown()
+void module_shutdown()
 {
     _module_unload_all();
-    
+
     if(!module_autoload_disabled)
     {
         /* remove lockfile */
         FIO_RemoveFile(module_lockfile);
     }
-    return 0;
 }
 
 TASK_CREATE("module_task", module_load_task, 0, 0x1e, 0x4000 );
 
 INIT_FUNC(__FILE__, module_init);
-
+SHUTDOWN_FUNC(__FILE__, module_shutdown);
