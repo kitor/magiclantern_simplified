@@ -28,6 +28,9 @@
 #define CONFIG_LIVEVIEW
 #define FEATURE_POWERSAVE_LIVEVIEW
 
+#define FEATURE_OVERLAYS_IN_PLAYBACK_MODE
+#define FEATURE_FLEXINFO
+#define CONFIG_PHOTO_MODE_INFO_DISPLAY
 // explicitly disable stuff that don't work or may break things
 #undef CONFIG_PROP_REQUEST_CHANGE
 #undef CONFIG_STATE_OBJECT_HOOKS

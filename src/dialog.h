@@ -266,7 +266,7 @@ struct dialog {
 // RP, 250D and newer are 0x128, but we left two commented out as they are not needed
 SIZE_CHECK_STRUCT( dialog, 0x120 );
 #else
-// verified on 750D, 200D
+// verified on 750D, 200D, it is 0x10C on 80D
 SIZE_CHECK_STRUCT( dialog, 0x110 );
 #endif
 

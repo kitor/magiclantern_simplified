@@ -60,7 +60,7 @@
 #define GMT_NFUNCS                  0x7                  // size of table above
 
 #define LVAE_STRUCT                 0x713f0              // First value written in 0xe12f9d86
-#define CONTROL_BV      (*(uint16_t*)(LVAE_STRUCT+0x20)) // via "lvae_sentcontrolbv"
+#define CONTROL_BV      (*(uint16_t*)(LVAE_STRUCT+0x20)) // via "lvae_setcontrolbv"
 #define CONTROL_BV_TV   (*(uint16_t*)(LVAE_STRUCT+0x22)) // via "lvae_setcontrolaeparam"
 #define CONTROL_BV_AV   (*(uint16_t*)(LVAE_STRUCT+0x24)) // via "lvae_setcontrolaeparam"
 #define CONTROL_BV_ISO  (*(uint16_t*)(LVAE_STRUCT+0x26)) // via "lvae_setcontrolaeparam"

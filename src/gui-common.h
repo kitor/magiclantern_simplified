@@ -94,13 +94,13 @@ struct gui_task
         void *                  priv;           // off_0x04;
         struct gui_task *       next;           // off_0x08;
         const char *            signature;      // off_0x0c
-#ifdef CONFIG_R
+#if defined(CONFIG_80D) || defined(CONFIG_R)
         uint32_t                unk_01;
         uint32_t                unk_02;
 #endif
 };
 
-#ifdef CONFIG_R
+#if defined(CONFIG_80D) || defined(CONFIG_R)
 SIZE_CHECK_STRUCT( gui_task, 0x18 );
 #else
 SIZE_CHECK_STRUCT( gui_task, 0x10 );
