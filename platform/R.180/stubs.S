@@ -81,10 +81,10 @@ THUMB_FN(0xE053AE8C,  SetTimerAfter)                        /* from error messag
 THUMB_FN(0xE053AF42,  CancelTimer)                          /* CancelRefreshTimer, CancelPlayTimer */
 
 /** Memory allocation **/
-//THUMB_FN(0xE0552814, _AllocateMemory)                       /* NG AllocateMemory */
-//THUMB_FN(0xE05529CC, _FreeMemory)                           /* uses the same heap */
-//THUMB_FN(0xE055269E,  GetMemoryInformation)                 /* called from AllocateMemory */
-//THUMB_FN(0xE0552672,  GetSizeOfMaxRegion)                   /* same */
+THUMB_FN(0xE0552814, _AllocateMemory)                       /* NG AllocateMemory */
+THUMB_FN(0xE05529CC, _FreeMemory)                           /* uses the same heap */
+THUMB_FN(0xE055269E,  GetMemoryInformation)                 /* called from AllocateMemory */
+THUMB_FN(0xE0552672,  GetSizeOfMaxRegion)                   /* same */
 THUMB_FN(0xE0552274, _alloc_dma_memory)                     /* allocates 64 bytes more, aligns at 32 and sets the uncacheable bit */
 THUMB_FN(0xE05522A8, _free_dma_memory)                      /* paired with the above; clears the uncacheable bit and frees the raw pointer */
 THUMB_FN(0xE021C7FC, _malloc)                               /* see "can't malloc" */
@@ -92,15 +92,15 @@ THUMB_FN(0xE021C834, _free)                                 /* next function; pa
 
 /** Memory allocation - experimental **/
 /* Functions used by MemoryManager based allocators. Take MemoryManager object as 1st argument */
-THUMB_FN(0xe0552720, _AllocateMemory_impl)                  /* Called from _AllocateMemory */
-THUMB_FN(0Xe05528aa, _FreeMemory_impl)                      /* Called from _FreeMemory */
-THUMB_FN(0xe055267a, _GetMemoryInformation_impl)            /* Called from GetMemoryInformation */
-THUMB_FN(0xe0552602, _GetSizeOfMaxRegion_impl)              /* Called from GetSizeOfMaxRegion */
-THUMB_FN(0xe0552308, MMGR_InitializeRegion)                 /* Initializes MemoryManager. Called in InitializePermanentMemory */
+//THUMB_FN(0xe0552720, _AllocateMemory_impl)                  /* Called from _AllocateMemory */
+//THUMB_FN(0Xe05528aa, _FreeMemory_impl)                      /* Called from _FreeMemory */
+//THUMB_FN(0xe055267a, _GetMemoryInformation_impl)            /* Called from GetMemoryInformation */
+//THUMB_FN(0xe0552602, _GetSizeOfMaxRegion_impl)              /* Called from GetSizeOfMaxRegion */
+//THUMB_FN(0xe0552308, MMGR_InitializeRegion)                 /* Initializes MemoryManager. Called in InitializePermanentMemory */
 
-DATA_PTR(    0x50BC, MMGR_DEFAULT_POOL)                     /* MemoryManager pointer from _AllocateMemory (passed to _AllocateMemory_impl) */
-DATA_PTR(0x9D9A0000, MMGR_REGION_START)                     /* Start of our managed region */
-DATA_PTR(0x9DE5FFFF, MMGR_REGION_END)                       /* End of our managed region */
+//DATA_PTR(    0x50BC, MMGR_DEFAULT_POOL)                     /* MemoryManager pointer from _AllocateMemory (passed to _AllocateMemory_impl) */
+//DATA_PTR(0x9D9A0000, MMGR_REGION_START)                     /* Start of our managed region */
+//DATA_PTR(0x9DE5FFFF, MMGR_REGION_END)                       /* End of our managed region */
 
 /** Memory info **/
 THUMB_FN(0xE008C974,  memmap_info)                          /* Exception vector, DRYOS system memory etc */
@@ -368,3 +368,12 @@ DATA_PTR(   0x13874,  LiveViewApp_dialog)                   // in StartLiveViewA
  * Do not port to other models unless you want to.
  */
 THUMB_FN(0xe04db4e8, DISP_SetHighLight)
+
+/** MMU **/
+THUMB_FN(0xe0004ae2,  change_mmu_tables)
+THUMB_FN(0xe000bc80,  copy_mmu_tables)
+ARM32_FN(0xe0017cfc,  memcpy_dryos)
+THUMB_FN(0xe000bb5a,  early_printf) //one used by fromutil
+THUMB_FN(0xe000be44,  dcache_clean_multicore) /* loop writing to c11007b0, called after dcache_clean by copy_mmu_tables() */
+THUMB_FN(0xe00f577c,  send_software_interrupt) // int 10 is used by DryOS to sleep/wake cpu1
+THUMB_FN(0xe051751e,  task_create_ex)          // as task_create, but allows selecting CPU for task

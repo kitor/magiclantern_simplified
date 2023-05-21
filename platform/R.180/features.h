@@ -29,6 +29,10 @@
 #define FEATURE_GLOBAL_DRAW
 #define FEATURE_CROPMARKS
 
+// Enable remapping ROM pages to RAM, after DryOS is initialised.
+#define CONFIG_SGI_HANDLERS
+#define CONFIG_MMU_REMAP
+
 // enable for testing gui structure changes
 #define CONFIG_RESTORE_AFTER_FORMAT
 

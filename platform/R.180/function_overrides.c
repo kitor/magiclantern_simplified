@@ -29,25 +29,25 @@
 #include <lens.h>
 #include <edmac.h>
 
-
-/** MemoryManager own memory pool experiment **/
-static int* pMemoryMgr;
-
 extern int uart_printf(const char * fmt, ...);
 
-/* MemoryManager initialization stub */
+/*
+// MemoryManager own memory pool experiment 
+static int* pMemoryMgr;
+
+// MemoryManager initialization stub 
 extern void* MMGR_InitializeRegion(void* region_start, int region_size);
 extern void* MMGR_DEFAULT_POOL;
 extern void* MMGR_REGION_START;
 extern void* MMGR_REGION_END;
 
-/* Internal variants of stubs that take MemoryManager struct */
+// Internal variants of stubs that take MemoryManager struct 
 extern void* _AllocateMemory_impl(void*, size_t);
 extern void  _FreeMemory_impl(void*, void*);
 extern int   _GetMemoryInformation_impl(void*, int*, int*);
 extern int   _GetSizeOfMaxRegion_impl(void*,int*);
 
-/* Wrapper functions to be exposed instead of regular stubs. */
+// Wrapper functions to be exposed instead of regular stubs. 
 void* _AllocateMemory(size_t size)
 {
     return _AllocateMemory_impl(pMemoryMgr, size);
@@ -68,11 +68,9 @@ int GetSizeOfMaxRegion(int* max_region)
     return _GetSizeOfMaxRegion_impl(pMemoryMgr, max_region);
 }
 
-/*
- * Our memory pool needs to be initialized before _mem_init() in ML init task.
- * I guess it would be better to hook into _mem_init(), but I wanted ability to
- * run code in post_init_task from platform dir anyway.
- */
+// Our memory pool needs to be initialized before _mem_init() in ML init task.
+// I guess it would be better to hook into _mem_init(), but I wanted ability to
+// run code in post_init_task from platform dir anyway.
 void platform_post_init()
 {
     // set default AllocateMemory pool as fallback - in case of init failure
@@ -92,7 +90,7 @@ void platform_post_init()
     }
     uart_printf("MMGR_InitializeRegion failed! pMemoryMgr fall back to 0x%08x\n", pMemoryMgr);
 }
-
+*/
 
 /*
  * Partition tables stuff. Got inlined in new generations, but this is a pretty standard one.

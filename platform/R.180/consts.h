@@ -231,3 +231,19 @@
 #define FORMAT_BTN       BGMT_INFO
 #define FORMAT_BTN_NAME  "[INFO]"
 #define FORMAT_STR_LOC   13      //WRONG, taken from 5D3
+
+
+
+//DATA_PTR(0x9D9A0000, MMGR_REGION_START)                     /* Start of our managed region */
+//DATA_PTR(0x9DE5FFFF, MMGR_REGION_END)   
+// MMU test
+#define DRYOS_SGI_HANDLERS_PTR    0x402c
+#define CANON_ORIG_MMU_TABLE_ADDR 0xe0000000 
+
+#define MMU_L1_TABLE_01_ADDR         0x9D9A0000
+#define MMU_L1_TABLE_02_ADDR         0x9D9A8000
+#define MMU_MAX_L2_TABLES            0x6
+#define MMU_L2_TABLES_START_ADDR     0x9D9A4C00
+#define MMU_L2_PAGES_INFO_START_ADDR 0x9D9B0000
+#define MMU_MAX_64k_PAGES_REMAPPED   0x3
+#define MMU_64k_PAGES_START_ADDR     0x9D9C0000

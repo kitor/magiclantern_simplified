@@ -9,7 +9,7 @@
 #define CONFIG_NO_BFNT
 
 /** Execute platform prepare function in post_init_task **/
-#define CONFIG_PLATFORM_POST_INIT
+//#define CONFIG_PLATFORM_POST_INIT
 
 /** disable SRM for now
  * in current state SRM_AllocateMemoryResourceFor1stJob makes camera crash
@@ -27,3 +27,7 @@
  * CACHEABLE / UNCACHEABLE changes
  */
 #define CONFIG_MEM_2GB
+
+// Cam has MMU (by itself, does nothing, see CONFIG_MMU_REMAP
+// and CONFIG_MMU_EARLY_REMAP)
+#define CONFIG_MMU
