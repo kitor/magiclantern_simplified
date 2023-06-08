@@ -30,6 +30,114 @@
 extern void DISP_SetHighLight(int);
 int highlight_flag = 0;
 
+extern int uart_printf(const char * fmt, ...);
+extern uint32_t * mzrm_CreateMsg(void * RPC, uint32_t msg_type, uint32_t function_id, size_t msg_size);
+extern uint32_t mzrm_SendMsg(void * RPC, uint32_t * msg);
+extern void mzrm_GiveSemaphore(void * RPC, uint32_t *msg);
+extern void * pMzrmRPC;
+
+uint32_t eglGetDisplay(uint32_t display_id)
+{
+  uint32_t * msg = mzrm_CreateMsg(pMzrmRPC,3,183,4);
+  if (msg != NULL) {
+    msg[3] = display_id;
+    uart_printf(" mzrm eglGetDisplay %d\n", msg[3]);
+    uint32_t val = mzrm_SendMsg(pMzrmRPC,msg);
+    mzrm_GiveSemaphore(pMzrmRPC,msg);
+    return val;
+  }
+  return 0;
+}
+
+uint32_t eglGetError(void)
+{
+  uint32_t * msg = mzrm_CreateMsg(pMzrmRPC,3,182,0);
+  if (msg != NULL) {
+    uart_printf(" mzrm eglGetError\n");
+    uint32_t val = mzrm_SendMsg(pMzrmRPC,msg);
+    mzrm_GiveSemaphore(pMzrmRPC,msg);
+    return val;
+  }
+  return 0;
+}
+
+uint32_t eglInitialize(uint32_t dpy, uint32_t *major, uint32_t *minor)
+{
+  uint32_t * msg = mzrm_CreateMsg(pMzrmRPC,3,184,12);
+  if (msg != NULL) {
+    msg[3] = dpy;
+    msg[4] = (uint32_t *)major;
+    msg[5] = (uint32_t *)minor;
+    uart_printf(" mzrm eglInitialize %d %d %d\n", msg[3], msg[4], msg[5]);
+    uint32_t val = mzrm_SendMsg(pMzrmRPC,msg);
+    mzrm_GiveSemaphore(pMzrmRPC,msg);
+    return val;
+  }
+  return 0;
+}
+
+uint32_t  eglTerminate(uint32_t dpy)
+{
+  uint32_t * msg = mzrm_CreateMsg(pMzrmRPC,3,185,4);
+  if (msg != NULL) {
+    msg[3] = dpy;
+    uart_printf(" mzrm eglTerminate %d\n", msg[3]);
+    uint32_t val = mzrm_SendMsg(pMzrmRPC,msg);
+    mzrm_GiveSemaphore(pMzrmRPC,msg);
+    return val;
+  }
+  return 0;
+}
+
+// ZICO private region is at 0x80000000 zico-side
+// Calculate offset to fetch strings from ICU ROM instead
+#define ZICO_FIRMWARE_OFFSET (0xe0de4c8c - 0x80000000)
+
+uint32_t eglQueryString(uint32_t dpy, uint32_t name)
+{
+  uint32_t * msg = mzrm_CreateMsg(pMzrmRPC,3,186,8);
+  if (msg != NULL) {
+    msg[3] = dpy;
+    msg[4] = name;
+    uart_printf(" mzrm eglQueryString %d\n", msg[3]);
+    uint32_t val = mzrm_SendMsg(pMzrmRPC,msg);
+    val += ZICO_FIRMWARE_OFFSET;
+    mzrm_GiveSemaphore(pMzrmRPC,msg);
+    return val;
+  }
+  return 0;
+} 
+
+// QueryString targets ..
+#define EGL_VENDOR       0x3053
+#define EGL_VERSION      0x3054
+#define EGL_EXTENSIONS   0x3055
+#define EGL_CLIENT_APIS  0x308D
+
+#define EGL_DEFAULT_DISPLAY 0
+
+static void egl_test()
+{
+  uint32_t dpy = eglGetDisplay( EGL_DEFAULT_DISPLAY );
+  //uart_printf("init failed %08x\n", eglGetError());
+
+  uint32_t major, minor;
+  if(!eglInitialize(dpy, &major, &minor)){
+      uart_printf("init failed %08x\n", eglGetError() );
+      return;
+  } 
+  uart_printf("cmd status %08x\n", eglGetError());
+  uart_printf("EGL Version %d.%d\n", major, minor);
+  uart_printf("EGL_VENDOR %s\n", eglQueryString(dpy, EGL_VENDOR));
+  uart_printf("EGL_VERSION %s\n",     eglQueryString(dpy, EGL_VERSION ) );
+  uart_printf("EGL_EXTENSIONS %s\n",  eglQueryString(dpy, EGL_EXTENSIONS) );
+  uart_printf("EGL_CLIENT_APIS %s\n", eglQueryString(dpy, EGL_CLIENT_APIS ) );
+  //eglTerminate(dpy);
+  //uart_printf("cmd status %08x\n", eglGetError());
+}
+
+
+
 static void overexpo_toggle()
 {
     highlight_flag = !highlight_flag;
@@ -49,6 +157,12 @@ static struct menu_entry test_features_debug_menu[] = {
                 .priv   = overexpo_toggle,
                 .select = run_in_separate_task,
                 .help   = "You may need to toggle twice each time you enter LV."
+            },
+            {
+                .name   = "Test EGL",
+                .priv   = egl_test,
+                .select = run_in_separate_task,
+                .help   = "test MZRM EGL"
             },
             MENU_EOL,
         },

@@ -368,3 +368,9 @@ DATA_PTR(   0x13874,  LiveViewApp_dialog)                   // in StartLiveViewA
  * Do not port to other models unless you want to.
  */
 THUMB_FN(0xe04db4e8, DISP_SetHighLight)
+
+/** MZRM **/
+THUMB_FN(0xe04c7842, mzrm_CreateMsg)
+THUMB_FN(0xe04c7946, mzrm_SendMsg)
+THUMB_FN(0xe04c7a3e, mzrm_GiveSemaphore)
+DATA_PTR(    0x5954, pMzrmRPC);
