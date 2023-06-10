@@ -54,6 +54,7 @@ inline uint8_t* bmp_vram_raw() { return bmp_vram_info[1].vram2; }
  * arbitrary layer on runtime (eg with compositor enabled)
  */
 extern struct MARV *rgb_vram_info;
+extern uint8_t *bmp_vram_indexed;
 #ifdef CONFIG_COMPOSITOR_XCM
 extern void* _pXCM;
 extern struct MARV *XCM_GetSourceSurface(void *pXCM, uint32_t layer_id);

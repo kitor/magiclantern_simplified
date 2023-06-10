@@ -45,6 +45,7 @@ extern uint32_t  display_refresh_needed;
  * alocation failed - everything falls back to non-compositing behaviour.
  */
 int _rgb_vram_layer_id = CANON_GUI_LAYER_ID;
+struct MARV * pNewLayer;
 
 /**
  * Not sure if sync_caches() call is needed. It was when I was drawing
@@ -201,7 +202,7 @@ int compositor_layer_setup()
     }
 
     // create layer
-    struct MARV *pNewLayer = _compositor_create_layer();
+    pNewLayer = _compositor_create_layer();
     if(pNewLayer == NULL){
         DryosDebugMsg(0, 15, "Failed to create a new layer. Falling back to _rgb_vram_info");
         return 1;

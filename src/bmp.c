@@ -99,7 +99,7 @@ void bmp_draw_to_idle(int value) { bmp_idle_flag = value; }
 
 #ifdef FEATURE_VRAM_RGBA
 struct MARV *rgb_vram_info = NULL;
-static uint8_t *bmp_vram_indexed = NULL;
+uint8_t *bmp_vram_indexed = NULL;
 // SJE what is an appropriate priority for this task?
 TASK_CREATE( "redraw_task", refresh_yuv_from_rgb_task, 0, 0x1e, 0x1000 );
 #endif
@@ -177,79 +177,53 @@ void bmp_idle_copy(int direction, int fullsize)
 
 #ifdef FEATURE_VRAM_RGBA
 
+struct Region{
+  uint32_t x;
+  uint32_t y;
+  uint32_t w;
+  uint32_t h;
+};                    
+
+
+extern uint32_t mzrm_GrypDsCoreDrawImageToVramForEqualPhase
+                (struct MARV*, struct Region*,
+                    uint32_t target_x, uint32_t target_y,
+                    void * buf, uint32_t bits_per_pixel, uint32_t source_w, uint32_t source_h,
+                    uint32_t source_cut_x, uint32_t source_cut_y, uint32_t source_cut_w, uint32_t source_cut_h,
+                    uint32_t isTransparent);
+                    
+
+struct Region* region;
 // XimrExe is used to trigger refreshing the OSD after the RGBA buffer
 // has been updated.  Should probably take a XimrContext *,
 // but this struct is not yet determined for 200D
 extern int XimrExe(void *);
+extern void VMIX_SetRefreshNeeded(uint32_t);
 extern struct semaphore *winsys_sem;
 void refresh_yuv_from_rgb(void)
 {
-    // get our indexed buffer, convert into our real rgb buffer
-    uint8_t *b = bmp_vram_indexed;
-    uint32_t *rgb_data = NULL;
-
-    if (rgb_vram_info != NULL)
-        rgb_data = (uint32_t *)rgb_vram_info->bitmap_data;
-    else
-    {
+    if (rgb_vram_info == NULL){
         DryosDebugMsg(0, 15, "rgb_vram_info was NULL, can't refresh OSD");
         return;
-    }
-
-    //SJE FIXME benchmark this loop, it probably wants optimising
-    if(zebra_should_run()){
-        // always draw our stuff, including full alpha
-        for (size_t n = 0; n < BMP_VRAM_SIZE; n++){
-            *rgb_data++ = indexed2rgb(*b);
-            b++;
-        }
-    }
-    else{
-#ifdef CONFIG_DIGIC_X
-        // kitor FIXME this is the loop altered to work with 2048x1080 layers.
-        // Resolution needs confirmation on R6.
-        //
-        // I think this could be used as general solution?
-        // Shall we use per-camera constants in bmp.c? Or maybe get this at runtime
-        // from Ximr / XCM?
-        uint32_t *rgb_row = rgb_data;
-        for (uint y = 0; y < BMP_H_PLUS - BMP_H_MINUS; y++ )
-        {
-            rgb_data = rgb_row;
-            for(uint x = 0; x < BMPPITCH; x++ )
-            {
-                uint32_t rgb = indexed2rgb(*b);
-                if ((rgb && 0xff000000) == 0x00000000)
-                    rgb_data++;
-                else
-                    *rgb_data++ = rgb;
-                b++;
-            }
-            rgb_row = rgb_row + BMP_LAYER_WIDTH;
-        }
-#else
-        for (size_t n = 0; n < BMP_VRAM_SIZE; n++)
-        {
-            // limited alpha support, if dest pixel would be full alpha,
-            // don't copy into dest.  This is COLOR_TRANSPARENT_BLACK in
-            // the LUT
-            uint32_t rgb = indexed2rgb(*b);
-            if ((rgb && 0xff000000) == 0x00000000)
-                rgb_data++;
-            else
-                *rgb_data++ = rgb;
-            b++;
-        }
-#endif
     }
 
     // trigger Ximr to render to OSD from RGB buffer
 #ifdef CONFIG_DIGIC_VI
     XimrExe((void *)XIMR_CONTEXT);
 #else
-    take_semaphore(winsys_sem, 0);
-    XimrExe((void *)XIMR_CONTEXT);
-    give_semaphore(winsys_sem);
+    //take_semaphore(winsys_sem, 0);
+    /* There's some hard limit to what Zico can draw at once using this method.
+       I wasn't able to draw more than 960x480 at once -> 960x481 made it won't draw.
+       With 960x480 R was crashing 30% of the time I entered Canon menu, with no messages on serial.
+       After switching to two haves, it was stable. I tried very hard to crash it.
+     */
+    uint8_t * pVRAM = bmp_vram_indexed;
+    mzrm_GrypDsCoreDrawImageToVramForEqualPhase(pNewLayer, NULL, 5, 0, pVRAM, 8, 960, 270, 0, 0, 960, 270, 1);
+    pVRAM += 960*270;
+    mzrm_GrypDsCoreDrawImageToVramForEqualPhase(pNewLayer, NULL, 5, 270, pVRAM, 8, 960, 270, 0, 0, 960, 270, 1);
+    //XimrExe((void *)XIMR_CONTEXT);
+    VMIX_SetRefreshNeeded(1);
+    //give_semaphore(winsys_sem);
 #endif
     ml_refresh_display_needed = 0;
 }
@@ -1477,11 +1451,18 @@ static void bmp_init(void* unused)
     bvram_mirror_init();
 #ifdef FEATURE_VRAM_RGBA
     bmp_vram_indexed = malloc(BMP_VRAM_SIZE);
+    region = malloc(sizeof(struct Region));
     // initialise to transparent, this allows us to draw over
     // existing screen, rather than replace it, due to checks
     // in refresh_yuv_from_rgb()
-    if (bmp_vram_indexed != NULL)
+    if ((bmp_vram_indexed != NULL) && (region != NULL))
+    {
+        region->x = 0;
+        region->y = 0;
+        region->w = 0;
+        region->h = 0;
         memset(bmp_vram_indexed, COLOR_TRANSPARENT_BLACK, BMP_VRAM_SIZE);
+    }
     else
         ASSERT(1);
 #endif
