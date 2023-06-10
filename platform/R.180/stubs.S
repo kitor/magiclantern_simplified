@@ -373,4 +373,10 @@ THUMB_FN(0xe04db4e8, DISP_SetHighLight)
 THUMB_FN(0xe04c7842, mzrm_CreateMsg)
 THUMB_FN(0xe04c7946, mzrm_SendMsg)
 THUMB_FN(0xe04c7a3e, mzrm_GiveSemaphore)
+THUMB_FN(0xe01e83c2, mzrm_SflwWrpDrawString)
+THUMB_FN(0xe011b80a, mzrm_GrypDsCoreDrawImageToVramForEqualPhase)
+THUMB_FN(0xe011b8a2, mzrm_GrypDsCoreDrawImageToVramForEqualPhaseBrush)
+THUMB_FN(0xe0702070, VMIX_SetRefreshNeeded)
 DATA_PTR(    0x5954, pMzrmRPC);
+ARM32_FN(0x022e5d94, fastDiv);
+ARM32_FN(0x022e5c18, fastMul_maybe)

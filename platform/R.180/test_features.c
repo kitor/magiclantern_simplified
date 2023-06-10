@@ -26,6 +26,7 @@
 
 #ifndef CONFIG_HELLO_WORLD
 #include <dryos.h>
+#include <compositor.h>
 
 extern void DISP_SetHighLight(int);
 int highlight_flag = 0;
@@ -136,7 +137,63 @@ static void egl_test()
   //uart_printf("cmd status %08x\n", eglGetError());
 }
 
+typedef struct Region{
+  uint32_t x;
+  uint32_t y;
+  uint32_t w;
+  uint32_t h;
+} Region;
 
+extern uint32_t mzrm_SflwWrpDrawString(struct MARV* pLayer, uint32_t x, uint32_t y, char* str, uint32_t z);
+extern uint32_t mzrm_GrypDsCoreDrawImageToVramForEqualPhase
+                (struct MARV*, struct Region*,
+                    uint32_t target_x, uint32_t target_y,
+                    void * buf, uint32_t unk1, uint32_t source_w, uint32_t source_h,
+                    uint32_t source_cut_x, uint32_t source_cut_y, uint32_t source_cut_w, uint32_t source_cut_h,
+                    uint32_t unk2);
+static void draw_test()
+{
+  msleep(3000);
+  uart_printf("draw test\n");
+  Region reg;
+  reg.x = 40;
+  reg.y = 40;
+  reg.w = 40;
+  reg.h = 40;
+  uart_printf("bmp_vram_indexed %08x pNewLayer %08x\n", bmp_vram_indexed, pNewLayer);
+  mzrm_GrypDsCoreDrawImageToVramForEqualPhase(pNewLayer, &reg, 5, 0, bmp_vram_indexed, 8, 960, 480, 0, 0, 960, 480, 1);
+  uart_printf("region %d %d %d %d\n", reg.x, reg.y, reg.w, reg.h);
+  call("SaveVRAM");
+  //uint32_t result = mzrm_SflwWrpDrawString(pNewLayer, 200, 200, "Draw test", );
+  uart_printf("done\n");
+}
+
+
+extern uint64_t fastDiv(uint32_t divident, uint32_t divisor);
+extern uint64_t fastMul_maybe(uint32_t divident, uint32_t divisor);
+
+void testStubWrap(uint32_t a, uint32_t b)
+{
+  uart_printf("fastMul_maybe %d %d\n", a, b);
+  uint64_t result = fastMul_maybe(a,b);
+  uart_printf("fastMul_maybe -> %d %d\n", (uint32_t)result, result >> 32);
+}
+
+static void stub_test()
+{
+   testStubWrap(1, 2);
+   testStubWrap(2, 1);
+//   testStub(0, 0);      // div/0, hard crash
+//   testStubWrap(16, 0); // div/0, hard crash
+   testStubWrap(0, 16);
+   testStubWrap(16, 16);
+   testStubWrap(256, 16);
+   testStubWrap(1000, 10);
+   testStubWrap(1000, 100);
+   testStubWrap(1000, 200);
+   testStubWrap(1000, 500);
+   testStubWrap(1000, 700);
+}
 
 static void overexpo_toggle()
 {
@@ -157,6 +214,18 @@ static struct menu_entry test_features_debug_menu[] = {
                 .priv   = overexpo_toggle,
                 .select = run_in_separate_task,
                 .help   = "You may need to toggle twice each time you enter LV."
+            },
+            {
+                .name   = "Test Stub",
+                .priv   = stub_test,
+                .select = run_in_separate_task,
+                .help   = "test Stub"
+            },
+            {
+                .name   = "Test Draw",
+                .priv   = draw_test,
+                .select = run_in_separate_task,
+                .help   = "test Draw"
             },
             {
                 .name   = "Test EGL",
