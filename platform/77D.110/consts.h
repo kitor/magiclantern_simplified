@@ -34,15 +34,19 @@
  * 0x02 - Play mode
  * 0x03 - Main menu
  * 0x2D - LV "Q" menu overlay
+* 0x50 - LV ?? / empty dialog
+ * 0x51 - LV "Flash expo" dialog
+ * 0x52 - LV ?? / empty dialog
  * 0x53 - LV "Shutter speed" overlay
  * 0x54 - LV "Aperture" overlay
  * 0x55 - LV "Exposure compensation" overlay
  * 0x56 - LV "ISO" overlay
+ * 0x56 - LV "Zoom" overlay
  */
 #define GUIMODE_PLAY 2
 #define GUIMODE_MENU 3
 // skip RECORDING variant for now
-#define GUIMODE_ML_MENU (lv ? 0x53 : GUIMODE_MENU)
+#define GUIMODE_ML_MENU (lv ? 0x52 : GUIMODE_MENU)
 //#define GUIMODE_ML_MENU (RECORDING ? 0 : lv ? 0x53 : GUIMODE_MENU)
 
 // I can't find any official data. Unofficial say 100k

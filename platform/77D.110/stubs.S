@@ -178,6 +178,8 @@ THUMB_FN(0xe04b36a4, _turn_on_display)
 THUMB_FN(0xe020fab8, XimrExe);                              //In RefreshVrmsSurface, just before "XimrExe" debug message
 DATA_PTR(   0x10120, winsys_sem);                           // Used in RefreshVrmsSurface around XimrExe call
 DATA_PTR(   0x10124, _rgb_vram_info);                       // Canon RGB VRAM pointer (Ximr layer 0)
+THUMB_FN(0xe02e163e, mzrm_GrypDsCoreDrawImageToVramForEqualPhase)
+DATA_PTR(   0x10138, display_refresh_needed)                // Easy to spot in refreshVrmsSurface()
 
 /** App handlers **/
 /**

@@ -137,14 +137,6 @@ static void egl_test()
   //uart_printf("cmd status %08x\n", eglGetError());
 }
 
-typedef struct Region{
-  uint32_t x;
-  uint32_t y;
-  uint32_t w;
-  uint32_t h;
-} Region;
-
-extern uint32_t mzrm_SflwWrpDrawString(struct MARV* pLayer, uint32_t x, uint32_t y, char* str, uint32_t z);
 extern uint32_t mzrm_GrypDsCoreDrawImageToVramForEqualPhase
                 (struct MARV*, struct Region*,
                     uint32_t target_x, uint32_t target_y,
@@ -155,16 +147,9 @@ static void draw_test()
 {
   msleep(3000);
   uart_printf("draw test\n");
-  Region reg;
-  reg.x = 40;
-  reg.y = 40;
-  reg.w = 40;
-  reg.h = 40;
-  uart_printf("bmp_vram_indexed %08x pNewLayer %08x\n", bmp_vram_indexed, pNewLayer);
-  mzrm_GrypDsCoreDrawImageToVramForEqualPhase(pNewLayer, &reg, 5, 0, bmp_vram_indexed, 8, 960, 480, 0, 0, 960, 480, 1);
-  uart_printf("region %d %d %d %d\n", reg.x, reg.y, reg.w, reg.h);
+  uart_printf("bmp_vram_indexed %08x rgb_vram_info %08x\n", bmp_vram_indexed, rgb_vram_info);
+  mzrm_GrypDsCoreDrawImageToVramForEqualPhase(rgb_vram_info, NULL, 5, 0, bmp_vram_indexed, 8, 960, 480, 0, 0, 960, 480, 1);
   call("SaveVRAM");
-  //uint32_t result = mzrm_SflwWrpDrawString(pNewLayer, 200, 200, "Draw test", );
   uart_printf("done\n");
 }
 

@@ -44,12 +44,7 @@
 //~ #define CONFIG_MENU_DIM_HACKS
 #undef SUBMENU_DEBUG_JUNKIE
 
-#ifdef FEATURE_VRAM_RGBA
-// For D6+ RGBA we don't need double buffering
-#define DOUBLE_BUFFERING 0
-#else
 #define DOUBLE_BUFFERING 1
-#endif
 
 //~ #define MENU_KEYHELP_Y_POS (menu_lv_transparent_mode ? 425 : 430)
 #define MENU_HELP_Y_POS 435

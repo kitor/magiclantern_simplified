@@ -55,6 +55,8 @@ inline uint8_t* bmp_vram_raw() { return bmp_vram_info[1].vram2; }
  */
 extern struct MARV *rgb_vram_info;
 extern uint8_t *bmp_vram_indexed;
+extern uint8_t *bmp_vram_indexed_back;
+extern struct semaphore * bmp_vram_switch_sem;
 #ifdef CONFIG_COMPOSITOR_XCM
 extern void* _pXCM;
 extern struct MARV *XCM_GetSourceSurface(void *pXCM, uint32_t layer_id);

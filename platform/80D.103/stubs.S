@@ -179,6 +179,8 @@ THUMB_FN(0xfe37128a, SetCFnData)                            // "SetCFnData"
 THUMB_FN(0xfe22b2fc, XimrExe);                              //In RefreshVrmsSurface, just before "XimrExe" debug message
 DATA_PTR(    0xc28c, _rgb_vram_info);
 DATA_PTR(    0xc288, winsys_sem);                           // Used in RefreshVrmsSurface around XimrExe call
+THUMB_FN(0xfe2d2d3c, mzrm_GrypDsCoreDrawImageToVramForEqualPhase)
+DATA_PTR(    0xc2a0, display_refresh_needed)                // Easy to spot in refreshVrmsSurface()
 
 /** Wrong on purpose **/
 DATA_PTR(       0x0,  LCD_Palette)                          // D6 has no indexed RGB buffers.

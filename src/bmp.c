@@ -38,8 +38,23 @@
 
     // inline functions in bmp.h
 
-#else // DryOS
+#elif defined(FEATURE_VRAM_RGBA)
+    uint8_t* BMP_VRAM_START(uint8_t* bmp_buf)
+    {
+        return bmp_buf;
+    }
 
+    uint8_t* bmp_vram_real()
+    {
+        return bmp_vram_indexed + BMP_HDMI_OFFSET;
+      }
+  
+    /** Returns a pointer to idle BMP vram */
+    uint8_t* bmp_vram_idle()
+    {
+        return bmp_vram_indexed_back + BMP_HDMI_OFFSET;
+    }
+#else // Digic 4 and 5
     // BMP_VRAM_START and BMP_VRAM_START are not generic - they only work on BMP buffer addresses returned by Canon firmware
     uint8_t* BMP_VRAM_START(uint8_t* bmp_buf)
     {
@@ -100,6 +115,9 @@ void bmp_draw_to_idle(int value) { bmp_idle_flag = value; }
 #ifdef FEATURE_VRAM_RGBA
 struct MARV *rgb_vram_info = NULL;
 uint8_t *bmp_vram_indexed = NULL;
+uint8_t *bmp_vram_indexed_back = NULL;
+uint8_t *bmp_vram_fake = NULL;
+struct semaphore * bmp_vram_switch_sem;
 // SJE what is an appropriate priority for this task?
 TASK_CREATE( "redraw_task", refresh_yuv_from_rgb_task, 0, 0x1e, 0x1000 );
 #endif
@@ -111,23 +129,6 @@ uint8_t * bmp_vram(void)
 {
     #if defined(CONFIG_VXWORKS)
     set_ml_palette_if_dirty();
-    #elif defined(FEATURE_VRAM_RGBA)
-    // SJE FIXME I'm not using BMP_VRAM_START because
-    // we're using a generic malloc'd block so we can't.
-    // It's supposed to adjust where we look inside the 960x540 region to determine
-    // where we base our drawing from, for various bmp_* and other functions.
-    //
-    // It does this by direct inspection of a pointer value to make guesses
-    // about how far into another buffer it is.  Which is nasty, and incompatible
-    // with our malloc'd block in any case.
-    //
-    // With the marv structs having width and height fields, and a mode global
-    // being known (display_output_mode, fda0 on 200D), there must be a nicer way
-    // to dynamically determine the real offset without inspecting the pointer.
-    //
-    // For now, assume 720x480.
-    uint8_t *bmp_buf = bmp_vram_indexed + BMP_HDMI_OFFSET;
-    // bmp_vram_indexed is initialised by bmp_init()
     #else
     uint8_t *bmp_buf = bmp_idle_flag ? bmp_vram_idle() : bmp_vram_real();
     #endif
@@ -140,6 +141,17 @@ uint8_t * bmp_vram(void)
 // 1 = copy idle to BMP
 void bmp_idle_copy(int direction, int fullsize)
 {
+    #ifdef FEATURE_VRAM_RGBA
+        take_semaphore(bmp_vram_switch_sem, 0);
+        uint8_t* tmp = bmp_vram_indexed;
+        bmp_vram_indexed = bmp_vram_indexed_back;
+        bmp_vram_indexed_back = tmp;
+        //sync_caches(); //kitor: not sure if needed changes anything
+        give_semaphore(bmp_vram_switch_sem);
+
+        ml_refresh_display_needed = 1; //force redraw after buffer swap
+        return;
+    #endif
     uint8_t* real = bmp_vram_real();
     uint8_t* idle = bmp_vram_idle();
     ASSERT(real)
@@ -176,30 +188,19 @@ void bmp_idle_copy(int direction, int fullsize)
 }
 
 #ifdef FEATURE_VRAM_RGBA
-
-struct Region{
-  uint32_t x;
-  uint32_t y;
-  uint32_t w;
-  uint32_t h;
-};                    
-
-
 extern uint32_t mzrm_GrypDsCoreDrawImageToVramForEqualPhase
-                (struct MARV*, struct Region*,
+                (struct MARV*, void *,
                     uint32_t target_x, uint32_t target_y,
                     void * buf, uint32_t bits_per_pixel, uint32_t source_w, uint32_t source_h,
                     uint32_t source_cut_x, uint32_t source_cut_y, uint32_t source_cut_w, uint32_t source_cut_h,
                     uint32_t isTransparent);
-                    
 
-struct Region* region;
 // XimrExe is used to trigger refreshing the OSD after the RGBA buffer
 // has been updated.  Should probably take a XimrContext *,
 // but this struct is not yet determined for 200D
 extern int XimrExe(void *);
-extern void VMIX_SetRefreshNeeded(uint32_t);
 extern struct semaphore *winsys_sem;
+extern uint32_t display_refresh_needed;
 void refresh_yuv_from_rgb(void)
 {
     if (rgb_vram_info == NULL){
@@ -207,24 +208,30 @@ void refresh_yuv_from_rgb(void)
         return;
     }
 
-    // trigger Ximr to render to OSD from RGB buffer
-#ifdef CONFIG_DIGIC_VI
-    XimrExe((void *)XIMR_CONTEXT);
-#else
-    //take_semaphore(winsys_sem, 0);
     /* There's some hard limit to what Zico can draw at once using this method.
        I wasn't able to draw more than 960x480 at once -> 960x481 made it won't draw.
        With 960x480 R was crashing 30% of the time I entered Canon menu, with no messages on serial.
-       After switching to two haves, it was stable. I tried very hard to crash it.
+       After switching to two halves, it was stable. I tried very hard to crash it.
      */
-    uint8_t * pVRAM = bmp_vram_indexed;
-    mzrm_GrypDsCoreDrawImageToVramForEqualPhase(pNewLayer, NULL, 5, 0, pVRAM, 8, 960, 270, 0, 0, 960, 270, 1);
-    pVRAM += 960*270;
-    mzrm_GrypDsCoreDrawImageToVramForEqualPhase(pNewLayer, NULL, 5, 270, pVRAM, 8, 960, 270, 0, 0, 960, 270, 1);
-    //XimrExe((void *)XIMR_CONTEXT);
-    VMIX_SetRefreshNeeded(1);
+    //take_semaphore(winsys_sem, 0);
+    uint8_t * pVRAM = bmp_vram_fake;
+    mzrm_GrypDsCoreDrawImageToVramForEqualPhase(rgb_vram_info, NULL, 120, 30, UNCACHEABLE(pVRAM), 8, 10, 10, 0, 0, 960, 270, 1);
+    //pVRAM += 960*270;
+    //mzrm_GrypDsCoreDrawImageToVramForEqualPhase(rgb_vram_info, NULL, 0, 270, pVRAM, 8, 960, 270, 0, 0, 960, 270, 1);
+    if(lv){
+      // In LV Canon seems to redraw very often. Just notify Canon code that buffer is ready to redraw.
+      display_refresh_needed = 1;
+      #ifndef CONFIG_R // R does refresh in LV at pretty good framerate by itself. 
+      XimrExe((void *)XIMR_CONTEXT);
+      #endif
+    }
+    else {
+      // Outside LV redraw depends on context. Force it.
+      XimrExe((void *)XIMR_CONTEXT);
+      display_refresh_needed = 1;
+    }
     //give_semaphore(winsys_sem);
-#endif
+    
     ml_refresh_display_needed = 0;
 }
 
@@ -240,9 +247,14 @@ static void refresh_yuv_from_rgb_task(void *unused)
     {
         if (ml_refresh_display_needed && !ml_shutdown_requested && DISPLAY_IS_ON)
         {
+            take_semaphore(bmp_vram_switch_sem, 0);
             refresh_yuv_from_rgb();
+            give_semaphore(bmp_vram_switch_sem);
         }
-        msleep(50); // max 20 fps refresh
+        else
+        {
+          msleep(50); // max 20 fps refresh
+        }
     }
 }
 
@@ -1450,21 +1462,22 @@ static void bmp_init(void* unused)
     ASSERT(bmp_lock)
     bvram_mirror_init();
 #ifdef FEATURE_VRAM_RGBA
-    bmp_vram_indexed = malloc(BMP_VRAM_SIZE);
-    region = malloc(sizeof(struct Region));
+    bmp_vram_indexed = malloc(BMP_VRAM_SIZE + 0x100);
+    bmp_vram_indexed_back = malloc(BMP_VRAM_SIZE + 0x100);
+    bmp_vram_fake = malloc(0x1000);
+    bmp_vram_switch_sem = create_named_semaphore( "bmp_vram", 1 );
     // initialise to transparent, this allows us to draw over
     // existing screen, rather than replace it, due to checks
     // in refresh_yuv_from_rgb()
-    if ((bmp_vram_indexed != NULL) && (region != NULL))
-    {
-        region->x = 0;
-        region->y = 0;
-        region->w = 0;
-        region->h = 0;
-        memset(bmp_vram_indexed, COLOR_TRANSPARENT_BLACK, BMP_VRAM_SIZE);
-    }
-    else
+    if ((bmp_vram_indexed == NULL) || (bmp_vram_indexed_back == NULL)){
         ASSERT(1);
+    }
+    else{
+        bmp_vram_indexed = (uint8_t*)((((uintptr_t)bmp_vram_indexed + 0x100) >> 8) << 8);
+        bmp_vram_indexed_back = (uint8_t*)((((uintptr_t)bmp_vram_indexed_back + 0x100) >> 8) << 8);
+        memset(bmp_vram_indexed, COLOR_TRANSPARENT_BLACK, BMP_VRAM_SIZE);
+        memset(bmp_vram_indexed_back, COLOR_TRANSPARENT_BLACK, BMP_VRAM_SIZE);
+    }
 #endif
 
     _update_vram_params();

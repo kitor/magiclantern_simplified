@@ -74,9 +74,10 @@ struct MARV *_compositor_create_layer()
 {
     // buffer for layer data
     // looks like code expect it to be in uncacheable area
-    uint8_t* pBitmapData = UNCACHEABLE(malloc(BMP_VRAM_SIZE*4));
+    // try to align to 0x100
+    uint8_t* pBitmapData = UNCACHEABLE(malloc(BMP_VRAM_SIZE*4) + 0x100);
     if(pBitmapData == NULL) return NULL;
-
+    pBitmapData = (uint8_t*)((((uintptr_t)pBitmapData + 0x100) >> 8) << 8);
     // buffer for MARV structure
     struct MARV* pNewLayer = malloc(sizeof(struct MARV));
     if(pNewLayer == NULL) return NULL;
