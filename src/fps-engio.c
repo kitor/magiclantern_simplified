@@ -42,16 +42,32 @@
 #include "fps.h"
 #include "shoot.h"
 
-
-#define FPS_REGISTER_A 0xC0F06008
-#define FPS_REGISTER_B 0xC0F06014
-#define FPS_REGISTER_CONFIRM_CHANGES 0xC0F06000
+#if defined(CONFIG_DIGIC_45)
+    #define FPS_REGISTER_A 0xC0F06008
+    #define FPS_REGISTER_B 0xC0F06014
+    #define FPS_REGISTER_CONFIRM_CHANGES 0xC0F06000
+#elif defined(CONFIG_200D)
+// SJE FIXME: this and the above should probably become a base value
+// in platform/XXD, from which the final value is derived
+// using an offset.
+    #define FPS_REGISTER_A 0xd0006008
+    #define FPS_REGISTER_B 0xd0006014
+    #define FPS_REGISTER_CONFIRM_CHANGES 0xd0006000
+#endif
 
 #define PACK(lo, hi) ((lo) & 0x0000FFFF) | (((hi) & 0x0000FFFF) << 16)
 
-#define FPS_REGISTER_A_VALUE ((int) shamem_read(FPS_REGISTER_A))
-#define FPS_REGISTER_A_DEFAULT_VALUE ((int) shamem_read(FPS_REGISTER_A+4))
-#define FPS_REGISTER_B_VALUE ((int) shamem_read(FPS_REGISTER_B))
+#if defined(CONFIG_DIGIC_45)
+    #define FPS_REGISTER_A_VALUE ((int) shamem_read(FPS_REGISTER_A))
+    #define FPS_REGISTER_A_DEFAULT_VALUE ((int) shamem_read(FPS_REGISTER_A+4))
+    #define FPS_REGISTER_B_VALUE ((int) shamem_read(FPS_REGISTER_B))
+#elif defined(CONFIG_200D)
+    extern int get_fps_register_b_val(void);
+    extern int get_shutter_speed_AccumH(void);
+    #define FPS_REGISTER_A_VALUE (get_shutter_speed_AccumH())
+    #define FPS_REGISTER_A_DEFAULT_VALUE (0x490) // don't know the real location yet
+    #define FPS_REGISTER_B_VALUE (get_fps_register_b_val())
+#endif
 
 #ifdef CONFIG_7D
 uint32_t *buf = NULL;
