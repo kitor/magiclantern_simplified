@@ -53,6 +53,11 @@
     #define FPS_REGISTER_A 0xd0006008
     #define FPS_REGISTER_B 0xd0006014
     #define FPS_REGISTER_CONFIRM_CHANGES 0xd0006000
+#elif defined(CONFIG_R)
+    // via `M SetReadOut` debug message -> base changed again to `0xd0406190`
+    #define FPS_REGISTER_A 0xd0406198
+    #define FPS_REGISTER_B 0xd04061A4
+    #define FPS_REGISTER_CONFIRM_CHANGES 0xd0406190
 #endif
 
 #define PACK(lo, hi) ((lo) & 0x0000FFFF) | (((hi) & 0x0000FFFF) << 16)
@@ -61,7 +66,7 @@
     #define FPS_REGISTER_A_VALUE ((int) shamem_read(FPS_REGISTER_A))
     #define FPS_REGISTER_A_DEFAULT_VALUE ((int) shamem_read(FPS_REGISTER_A+4))
     #define FPS_REGISTER_B_VALUE ((int) shamem_read(FPS_REGISTER_B))
-#elif defined(CONFIG_200D)
+#elif defined(CONFIG_200D) || defined(CONFIG_R)
     extern int get_fps_register_b_val(void);
     extern int get_shutter_speed_AccumH(void);
     #define FPS_REGISTER_A_VALUE (get_shutter_speed_AccumH())

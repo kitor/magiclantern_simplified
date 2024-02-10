@@ -333,35 +333,9 @@ DATA_PTR(   0x13874,  LiveViewApp_dialog)                   // in StartLiveViewA
 //THUMB_FN(e0541b80, WINSYS_CreateDialogBox)                // Actual logic. Takes one more argument than CreateDialogBox() (layer ID)
                                                             // On R, Layer 1 is used only by StartLiveViewAFFrameApp()
 
-/**
- * Stuff below should not be enabled. Looks that there are many hardcoded
- * addresses in 0xCxxxxxxx range all over ML code. D8 seems to use 0xDxxxxxxx
- * range for Engio.
- */
-
-/** Engio **/
-// THUMB_FN(0x, _EngDrvOut)                                  // not found yet, can be wrapped to _engio_write if needed
-// THUMB_FN(0xE06B92B4, _engio_write)                        // via "Count < MAX_ENG_REG_NUM","EngineDS::DSEngIO.c" strings
-// THUMB_FN(0x,  shamem_read)                                // not found yet
-
-/** ResLock **/
-// THUMB_FN(0xE054761E,  CreateResLockEntry)                 // One that creates 0x24 structure with cls pointer to "LockEntry"
-//                                                           // and multiple "ResInfo" structures
-// THUMB_FN(0xE0547806,  LockEngineResources)                // Takes LockEntry as input, creates "EFM_ERSC_STATIC" inside LockEntry
-// THUMB_FN(0xE05478A6,  UnLockEngineResources)              // Takes LockEntry as input, releases semaphore from LockEntry content
-
-/** EDMAC **/
-// THUMB_FN(0x,  AbortEDmac)
-// THUMB_FN(0x,  ConnectReadEDmac)
-// THUMB_FN(0x,  ConnectWriteEDmac)
-// THUMB_FN(0x,  RegisterEDmacAbortCBR)
-// THUMB_FN(0x,  UnregisterEDmacAbortCBR)
-// THUMB_FN(0xE0535A82,  RegisterEDmacCompleteCBR)            // Not sure. Many registered CBRs have "CompCBR" in debug print names
-// THUMB_FN(0xE0535E16,  UnregisterEDmacCompleteCBR)          // Uses same data structure as above. Replaces CBR with pointer to "do nothing" function.
-// THUMB_FN(0x,  RegisterEDmacPopCBR)
-// THUMB_FN(0x,  UnregisterEDmacPopCBR)
-// THUMB_FN(0x,  SetEDmac)
-// THUMB_FN(0x,  StartEDmac)
+// RAW stuff
+THUMB_FN(0xe03c5eda, get_fps_register_b_val)
+THUMB_FN(0xe03c5f5a, get_shutter_speed_AccumH)
 
 /*
  * Stubs needed only for experiments in test_features.c
