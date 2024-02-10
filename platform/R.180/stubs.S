@@ -342,3 +342,27 @@ THUMB_FN(0xe03c5f5a, get_shutter_speed_AccumH)
  * Do not port to other models unless you want to.
  */
 THUMB_FN(0xe04db4e8, DISP_SetHighLight)
+
+// EDMAC copy test
+THUMB_FN(0xe0671742, PwrMng_WakeSubChips)
+THUMB_FN(0xe0671770, PwrMng_SuspendSubChips)
+
+THUMB_FN(0xe0712bac, MemToMemE1_SetupEDMAC)
+THUMB_FN(0xe0712ca0, MemToMemE1_RegisterCBR)
+THUMB_FN(0xe0712caa, MemToMemE1_ResetCBR)
+THUMB_FN(0xe0712c86, MemToMemE1_ClearEdmacCBR)
+THUMB_FN(0xe05364b6, edmac_set_address)
+THUMB_FN(0xe05364c2, edmac_set_size)
+THUMB_FN(0xe05369b8, edmac_set_transfer_mode)
+THUMB_FN(0xe05362d4, StartEDmac_maybe)
+THUMB_FN(0xe053595e, ConnectReadEDmac_maybe)
+
+THUMB_FN(0xe054761e, CreateResLockEntry)
+THUMB_FN(0xe0547806, LockEngineResources)
+THUMB_FN(0xe05478a6, UnLockEngineResources)
+
+THUMB_FN(0xe05546f2, CreateEventFlag_strictly)
+THUMB_FN(0xe053a5b8, SetEventFlag)
+THUMB_FN(0xe053a3bc, WaitForAnyEventFlag)
+THUMB_FN(0xe053a5e6, ClearEventFlag)
+THUMB_FN(0xe053a29e, DeleteEventFlag)
