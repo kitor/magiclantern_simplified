@@ -85,6 +85,37 @@ struct edmac_info
 };
 #endif
 
+#if defined(CONFIG_DIGIC_8X)
+// R variant
+struct edmac_mmio
+{
+    uint32_t unk_01[11];
+    uint32_t ModeInfo;
+    uint32_t unk_02[3];
+    uint32_t cbr_registered;
+    uint32_t unk03[2];
+    uint32_t ys_xs;
+    uint32_t ya_xa;
+    uint32_t yb_xb;
+    uint32_t yn_xn;
+    uint32_t off1s;
+    uint32_t off2s;
+    uint32_t off1a;
+    uint32_t off2a;
+    uint32_t off1b;
+    uint32_t off2b;
+    uint32_t off3;
+    uint32_t unk_04[11];
+    uint32_t ram_addr;
+    uint32_t unk_05[7];
+    uint32_t trasfer_mode;
+    uint32_t unk_06[3];
+    uint32_t PackUnpackInfo;
+};
+// Channels are spaced by 0x100... was too lazy to uncomment this and fill
+// the struct since our understanding of D8 MMIO is still WiP
+//SIZE_CHECK_STRUCT(edmac_mmio, 0x100);
+#else
 // For some more, not terribly clear info, see:
 // https://magiclantern.fandom.com/wiki/Register_Map#EDMAC
 // near "SDRAM destination offset"
@@ -115,6 +146,7 @@ struct edmac_mmio
     uint32_t unk_04[0x2f]; // some of this is padding, but I don't know how much
 };
 SIZE_CHECK_STRUCT(edmac_mmio, 0x100);
+#endif
 
 void EDMAC_Register_Complete_CBR(unsigned int channel, void (*cbr)(), unsigned int ctx);
 void SetEDmac(unsigned int channel, void *address, struct edmac_info *ptr, int flags);
