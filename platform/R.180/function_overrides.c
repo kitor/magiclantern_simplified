@@ -329,6 +329,78 @@ int _FIO_GetFileSize(const char * filename, uint32_t * size){
     return code;
 }
 
+// No shamem on D8, reads are done directly
+uint32_t shamem_read(uint32_t addr)
+{
+    return *(uintptr_t*)addr;
+}
+
+// reimplement this wonderful function with mem2mem_emdac_copy_d8
+void* edmac_copy_rectangle_cbr_start(void *dst, void *src,
+                                     int src_width, int src_x, int src_y,
+                                     int dst_width, int dst_x, int dst_y,
+                                     int w, int h,
+                                     void (*cbr_r)(void *), void (*cbr_w)(void *), void *cbr_ctx)
+{
+    // "src_width" is width of the frame including dark areas, borders etc.
+    // "w" is the width of the region to copy out, e.g. if stripping the borders.
+
+    if ((src == NULL) || (dst == NULL))
+    {
+        ASSERT(0);
+        return NULL;
+    }
+
+    // Old code doesn't explain why it checks this, my guess is
+    // because DMA transfers don't invalidate CPU cache, since
+    // they're outside of the CPU.
+    ASSERT(dst == UNCACHEABLE(dst));
+
+    /* clean the cache before reading from regular (cacheable) memory */
+    /* see FIO_WriteFile for more info */
+    if (src == CACHEABLE(src))
+    {
+        sync_caches();
+    }
+
+    /* create a memory suite from a already existing (continuous) memory block with given size. */
+    // SJE: no idea what "memory suite" is supposed to mean here
+    uint32_t src_adjusted = ((uint32_t)src & 0x1FFFFFFF) + src_x + src_y * src_width;
+    uint32_t dst_adjusted = ((uint32_t)dst & 0x1FFFFFFF) + dst_x + dst_y * dst_width;
+
+    struct edmac_info src_region = {
+        .off1b = src_width - w,
+        .xb = w,
+        .yb = h - 1,
+    };
+
+    struct edmac_info dst_region = {
+        .off1b = 0,
+        .xb = w,
+        .yb = h - 1,
+    };
+
+    mem2mem_emdac_copy_d8(src, dst, &src_region, &dst_region);
+
+    return dst;
+}
+
+// dummy stubs to make mlv_lite happy
+void edmac_memcpy_res_lock()
+{
+}
+
+void edmac_memcpy_res_unlock()
+{
+}
+
+void edmac_copy_rectangle_adv_cleanup()
+{
+}
+
+uint32_t edmac_read_chan = 0x6; // dummy, don't use
+uint32_t edmac_write_chan = 0x6; // dummy, don't use
+
 /** WRONG: temporary overrides to get CONFIG_HELLO_WORLD working **/
 
 void SetEDmac(unsigned int channel, void *address, struct edmac_info *ptr, int flags)
@@ -389,11 +461,6 @@ void UnregisterEDmacPopCBR(int channel)
 void _EngDrvOut(uint32_t reg, uint32_t value)
 {
     return;
-}
-
-uint32_t shamem_read(uint32_t addr)
-{
-    return 0;
 }
 
 void _engio_write(uint32_t* reg_list)

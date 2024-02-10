@@ -147,6 +147,9 @@
 
 #define YUV422_HD_BUFFER_DMA_ADDR 0x0 // it expects this to be shamem_read(some_DMA_ADDR)
 
+#define RAW_LV_EDMAC_CHANNEL_ADDR 0xd0058000 // channel 24
+#define SHAD_GAIN_REGISTER 0xd0008030 // plausible looking from ROM code, though untested
+
 /* WRONG! */
 #define HALFSHUTTER_PRESSED         0
 /* kitor: I was unable to find any related stuff from 200D

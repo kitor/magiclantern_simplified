@@ -1476,11 +1476,6 @@ void free_buffers()
         shoot_free_suite(shoot_mem_suite);
         shoot_mem_suite = 0;
     }
-    if (srm_mem_suite)
-    {
-        srm_free_suite(srm_mem_suite);
-        srm_mem_suite = 0;
-    }
 }
 
 static REQUIRES(settings_sem)
@@ -1494,7 +1489,7 @@ void realloc_buffers()
     /* yes, this may be a bit wasteful, but at least it works */
     /* note: full memory allocation is very slow (1-2 seconds) */
     shoot_mem_suite = shoot_malloc_suite(0);
-    srm_mem_suite = use_srm_memory ? srm_malloc_suite(0) : 0;
+    srm_mem_suite = 0;
     info_led_off();
 
     if (shoot_mem_suite != NULL)
@@ -1584,16 +1579,6 @@ int setup_buffers()
     chunk_index = add_mem_suite(shoot_mem_suite, chunk_index, max_frame_size, fullres_buf_size);
     printf("%d slots from shoot_malloc.\n", valid_slot_count);
     chunk_index = add_mem_suite(srm_mem_suite, chunk_index, max_frame_size, fullres_buf_size);
-
-    if (0)
-    {
-        /* keeping SRM allocated will block the half-shutter
-         * and may show BUSY on the screen. */
-        /* assuming no other task will allocate during recording, 
-         * this intentional use-after-free should be fine */
-        srm_free_suite(srm_mem_suite);
-        srm_mem_suite = 0;
-    }
 
     printf("Allocated %d slots.\n", valid_slot_count);
 
@@ -2096,71 +2081,8 @@ void FAST hack_liveview_vsync()
 
 static REQUIRES(RawRecTask)
 void hack_liveview(int unhack)
-{
-    if (small_hacks)
-    {
-        /* disable canon graphics (gains a little speed) */
-        static int canon_gui_was_enabled;
-        if (!unhack)
-        {
-            canon_gui_was_enabled = !canon_gui_front_buffer_disabled();
-            canon_gui_disable_front_buffer();
-        }
-        else if (canon_gui_was_enabled)
-        {
-            canon_gui_enable_front_buffer(0);
-            canon_gui_was_enabled = 0;
-        }
+{   
 
-        /* disable auto exposure and auto white balance */
-        call("aewb_enableaewb", unhack ? 1 : 0);  /* for new cameras */
-        call("lv_ae",           unhack ? 1 : 0);  /* for old cameras */
-        call("lv_wb",           unhack ? 1 : 0);
-        
-        /* change dialog refresh timer from 50ms to 8192ms */
-        uint32_t dialog_refresh_timer_addr = /* in StartDialogRefreshTimer */
-            cam_50d ? 0xffa84e00 :
-            cam_5d2 ? 0xffaac640 :
-            cam_5d3_113 ? 0xff4acda4 :
-            cam_5d3_123 ? 0xFF4B7648 :
-            cam_550d ? 0xFF2FE5E4 :
-            cam_600d ? 0xFF37AA18 :
-            cam_650d ? 0xFF527E38 :
-            cam_6d   ? 0xFF52C684 :
-            cam_eos_m ? 0xFF539C1C :
-            cam_700d ? 0xFF52BB60 :
-            cam_70d ? 0xff558ff0 :
-            cam_7d  ? 0xFF345788 :
-            cam_60d ? 0xff36fa3c :
-            cam_100d ? 0xFF542580 :
-            cam_500d ? 0xFF2ABEF8 :
-            cam_1100d ? 0xFF373384 :
-            /* ... */
-            0;
-        uint32_t dialog_refresh_timer_orig_instr = 0xe3a00032; /* mov r0, #50 */
-        uint32_t dialog_refresh_timer_new_instr  = 0xe3a00a02; /* change to mov r0, #8192 */
-
-        if (dialog_refresh_timer_addr)
-        {
-            if (!unhack) /* hack */
-            {
-                int err = patch_instruction(
-                    dialog_refresh_timer_addr, dialog_refresh_timer_orig_instr, dialog_refresh_timer_new_instr, 
-                    "raw_rec: slow down Canon dialog refresh timer"
-                );
-                
-                if (err)
-                {
-                    NotifyBox(1000, "Hack error at %x:\nexpected %x, got %x", dialog_refresh_timer_addr, dialog_refresh_timer_orig_instr, *(volatile uint32_t*)dialog_refresh_timer_addr);
-                    beep_custom(1000, 2000, 1);
-                }
-            }
-            else /* unhack */
-            {
-                unpatch_memory(dialog_refresh_timer_addr);
-            }
-        }
-    }
 }
 
 static REQUIRES(LiveViewTask) FAST
@@ -3230,8 +3152,6 @@ int write_frames(FILE** pf, void* ptr, int group_size, int num_frames)
     return 1;
 }
 
-extern thunk ErrCardForLVApp_handler;
-
 /* note: called from raw_video_rec_task */
 /* vsync does not run at this time, so we can take its role momentarily */
 static REQUIRES(LiveViewTask)
@@ -3387,17 +3307,6 @@ void raw_video_rec_task()
                 msleep(20);
             }
 
-            /* fixme: not very portable */
-            if (get_current_dialog_handler() == &ErrCardForLVApp_handler)
-            {
-                /* emergency stop - free all resources ASAP to prevent crash */
-                /* the video will be incomplete */
-                NotifyBox(5000, "Emergency Stop");
-                raw_recording_state = RAW_FINISHING;
-                wait_lv_frames(2);
-                writing_queue_head = writing_queue_tail;
-                break;
-            }
         }
         
         int w_tail = writing_queue_tail; /* this one can be modified outside the loop, so grab it here, just in case */
@@ -3746,8 +3655,7 @@ cleanup:
     /* re-enable powersaving  */
     powersave_permit();
 
-    if (use_h264_proxy() && RECORDING_H264 &&
-        get_current_dialog_handler() != &ErrCardForLVApp_handler)
+    if (use_h264_proxy() && RECORDING_H264)
     {
         /* stop H.264 recording */
         printf("Stopping H.264...\n");

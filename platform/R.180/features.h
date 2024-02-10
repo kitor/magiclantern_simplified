@@ -32,6 +32,11 @@
 // enable for testing gui structure changes
 #define CONFIG_RESTORE_AFTER_FORMAT
 
+// These two needed to enable mlv_lite
+#define FEATURE_PICSTYLE
+#define CONFIG_RAW_LIVEVIEW
+#define CONFIG_STATE_OBJECT_HOOKS
+
 #undef CONFIG_CRASH_LOG
 #undef CONFIG_PROP_REQUEST_CHANGE
 #undef CONFIG_AUTOBACKUP_ROM
