@@ -93,6 +93,142 @@ void platform_post_init()
     uart_printf("MMGR_InitializeRegion failed! pMemoryMgr fall back to 0x%08x\n", pMemoryMgr);
 }
 
+/*
+ * EDMAC mem2mem copy
+ */
+
+/*
+ * On D8 those take a list of subchips (0-6), terminated with 7.
+ * Those seem to match channels: EDOMAIN_EDMAC_1_* to EDOMAIN_EDMAC_7_*
+ * where SubChipID is N-1 from above.
+ * If you don't wake SubChip before any edmac mmio r/w attempt, camera will
+ * hard lock.
+ */
+extern void PwrMng_WakeSubChips(const uint32_t *list);
+extern void PwrMng_SuspendSubChips(const uint32_t *list);
+
+/*
+ * A few unavoidable stubs for now. SetupEDMAC does the boomer stuff that
+ * we don't understand.
+ * Note: Named MemToMemE1 as they come from `Engine::MemoryToMemoryEsub1.c`
+ *       and use EDOMAIN_EDMAC_1_* (thus SubChipID 0) channels.
+ *       There's a similar set of functions via `Engine::MemoryToMemoryEsub5.c`
+ *       which run on EDOMAIN_EDMAC_5_* (thus SubChipID 4). I had no success
+ *       trying those - transfer never happened.
+ */
+extern void MemToMemE1_SetupEDMAC(uint32_t *channels);
+extern void MemToMemE1_RegisterCBR(void *cbr, void *arg);
+extern void MemToMemE1_ResetCBR();
+extern void MemToMemE1_ClearEdmacCBR();
+
+/*
+ * Direct use of EDMAC stubs.
+ * What's different from D7 is that ConnectReadEDmac_maybe takes only one arg:
+ * read emdac channel. Not a single stub takes "device id" as argument, and
+ * there's no ConnectWriteEDmac equv.
+ * Theory for now is: connections are either set up via some of edmac config
+ * structures, or Boomer (BoomerVdKick, BoomerSelect...) is responsible for that.
+ */
+extern void edmac_set_address(uint32_t channel, void *addr);
+extern void edmac_set_size(uint32_t channel, struct edmac_info *edmac_info);
+extern void edmac_set_transfer_mode(uint32_t channel, uint32_t mode);
+extern void StartEDmac_maybe(uint32_t channel);
+extern void ConnectReadEDmac_maybe(uint32_t channel);
+
+/*
+ * Event flags. Paths use those a lot.
+ * We use this to distinguish between a successfull failed data copy
+ */
+extern uint32_t CreateEventFlag_strictly(const char *name);
+extern uint32_t SetEventFlag(uint event_id, uint flag);
+extern uint32_t WaitForAnyEventFlag(uint32_t event_id, uint32_t flag, uint32_t timeout);
+extern uint32_t ClearEventFlag(uint32_t event_id, uint32_t flag);
+extern uint32_t DeleteEventFlag(uint32_t event_id);
+
+/*
+ * Some setup for mem2mem EDMAC copy.
+ * Values stolen from `EFsVcopy` which seems to be the only user of
+ * `Engine::MemoryToMemoryEsub1.c` methods.
+ */
+const uint32_t mem2mem_RD_CH = 46;
+const uint32_t mem2mem_WR_CH = 13;
+const uint32_t mem2mem_devices[2] = {0, 7};
+const uint32_t mem2mem_resources[2] = {0x100AD, 0x100BB};
+const uint32_t mem2mem_mode = 0x0; // 1 - 32bit, 2 - 64bit, 3 - 128bit
+const uint32_t mem2mem_wait_ms = 10;
+
+struct LockEntry * mem2mem_lock;
+uint32_t mem2mem_done;
+uint32_t mem2mem_flag;
+
+static void mem2mem_copy_comp_CBR(void * arg)
+{
+    DryosDebugMsg(0, 15, "CopyCompCBR: %d", arg);
+    mem2mem_done = 1;
+    SetEventFlag(mem2mem_flag, 1);
+}
+
+uint32_t mem2mem_emdac_copy_d8(void * src, void * dst, struct edmac_info * src_info, struct edmac_info * dst_info)
+{
+    /**
+     * "InitMem2MemPath" stage
+     */
+    DryosDebugMsg(0, 15, "InitMem2MemPath");
+    mem2mem_done = 0;
+    mem2mem_flag = CreateEventFlag_strictly("Mem2MemD8Copy");
+    mem2mem_lock = CreateResLockEntry(mem2mem_resources, sizeof(mem2mem_resources));
+    uint32_t err = LockEngineResources(mem2mem_lock);
+    if(err > 0)
+    {
+        DryosDebugMsg(0, 15, "LockEngineResources failed: %d", err);
+        return 1;
+    }
+
+    PwrMng_WakeSubChips(mem2mem_devices);
+
+    uint32_t channels[2] = {mem2mem_RD_CH, mem2mem_WR_CH}; //1st read, 2nd write
+    MemToMemE1_SetupEDMAC(channels);
+    MemToMemE1_RegisterCBR(mem2mem_copy_comp_CBR, NULL);
+
+    /**
+     * "StartMem2MemPath" stage
+     */
+    DryosDebugMsg(0, 15, "StartMem2MemPath");
+
+    // equiv to MemToMemE1_set_address(&buf0);
+    edmac_set_address(mem2mem_WR_CH, dst);
+    edmac_set_address(mem2mem_RD_CH, src);
+
+    // equiv to MemToMemE1_set_size_and_flags(...);
+    edmac_set_size(mem2mem_WR_CH, dst_info);
+    edmac_set_size(mem2mem_RD_CH, src_info);
+    edmac_set_transfer_mode(mem2mem_WR_CH, mem2mem_mode);
+    edmac_set_transfer_mode(mem2mem_RD_CH, mem2mem_mode);
+
+    // equiv to MemToMemE1_copy_start();
+    StartEDmac_maybe(mem2mem_WR_CH);
+    StartEDmac_maybe(mem2mem_RD_CH);
+    ConnectReadEDmac_maybe(mem2mem_RD_CH);
+
+    DryosDebugMsg(0, 15, "WaitForData");
+    // Wait for transfer to end, or timeout
+    WaitForAnyEventFlag(mem2mem_flag, 1, mem2mem_wait_ms);
+    ClearEventFlag(mem2mem_flag, 1);
+
+    /**
+     * "TermMem2MemPath" stage
+     */
+    DryosDebugMsg(0, 15, "TermMem2MemPath");
+    MemToMemE1_ResetCBR();
+    MemToMemE1_ClearEdmacCBR();
+    PwrMng_SuspendSubChips(mem2mem_devices);
+    UnLockEngineResources(mem2mem_lock);
+    DeleteEventFlag(mem2mem_flag);
+
+    return mem2mem_done ? 0 : 1;
+}
+
+
 
 /*
  * Partition tables stuff. Got inlined in new generations, but this is a pretty standard one.
