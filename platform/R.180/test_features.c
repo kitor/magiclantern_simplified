@@ -119,6 +119,73 @@ static void test_edmac_memcpy()
 }
 
 
+// DmacInfo array, contains pointers to EDMAC channel MMIO
+#define MAX_CHANNELS 76
+struct DmacInfoEntry
+{
+    struct edmac_mmio * pEdmacChannel;
+    uint32_t ModeInfo;
+};
+struct DmacInfoEntry* DmacInfo = (struct DmacInfoEntry *)0xe0dd5c64;
+
+// InterruptHandlers array - each entry sets Interrupt ID and CBR for Nth channel
+struct InterruptHandlerEntry
+{
+    uint32_t id;
+    uint32_t cbr;
+};
+struct InterruptHandlerEntry* Handlers = (struct InterruptHandlerEntry*)0xE0DD641C;
+
+// InterrutpID to description map. 512 entries on R
+char** IVT = (char **)0x19390;
+
+/*
+ * List of subchips to wake up
+ * On R (D8?) shamem_read is not used - all reads/writes are done directly
+ * via edmac_mmio.
+ *
+ * Caveat is whenever I tried to read or write in `EDOMAIN_EDMAC_5_*` camera locked.
+ * I discovered that if I wake subchip 4 (aka N-1) - it works fine.
+ *
+ * Canon code always wraps EDMAC stuff into Wake/Suspend calls, thus we need
+ * to follow this dance.
+ */
+const uint32_t devs[] = {0,1,2,3,4,5,6,7};
+extern void PwrMng_WakeSubChips(const uint32_t *list);
+extern void PwrMng_SuspendSubChips(const uint32_t *list);
+
+/*
+ * Dump all EDMAC channels that have params set
+ *
+ * As for now we don't know which mmio reg is "dma in progress" flag
+ */
+static void watch_edmac_channels()
+{
+    PwrMng_WakeSubChips(devs);
+    uint32_t xa, xb, xn, ya, yb, yn, xs, ys, w, h;
+    for(int i = 0; i < MAX_CHANNELS; i++)
+    {
+        struct edmac_mmio * ch = DmacInfo[i].pEdmacChannel;
+        char * name = IVT[Handlers[i].id];
+        if(!ch->yb_xb)
+          continue; // skip unset channels... does every call use yb/xb?
+        yn = ch->yn_xn >> 16;
+        xn = ch->yn_xn & 0xFFFF;
+        yb = ch->yb_xb >> 16;
+        xb = ch->yb_xb & 0xFFFF;
+        ya = ch->ya_xa >> 16;
+        xa = ch->ya_xa & 0xFFFF;
+        xs = ch->ys_xs >> 16;
+        ys = ch->ys_xs & 0xFFFF;
+        w = xa * xn + xb;
+        h = ya * yn + yb;
+        DryosDebugMsg(0, 15, "CH %02d: %08x %08x %s %d", i, ch, ch->ram_addr,  name);
+        DryosDebugMsg(0, 15, "    x %d*%d+%d y %d*%d+%d = %dx%d", xn, xa, xb, yn, ya, yb, w, h);
+        DryosDebugMsg(0, 15, "    xs %d ys %d off3 %d", xs, ys, ch->off3);
+        //DryosDebugMsg(0, 15, "    p %08x",  ch->PackUnpackInfo);
+    }
+    PwrMng_SuspendSubChips(devs);
+}
 
 static void overexpo_toggle()
 {
@@ -134,6 +201,12 @@ static struct menu_entry test_features_debug_menu[] = {
         .select = menu_open_submenu,
         .help   = "Temporary features, not integrated into main codebase yet.",
         .children =  (struct menu_entry[]) {
+            {
+                .name   = "watch edmac channels",
+                .priv   = watch_edmac_channels,
+                .select = run_in_separate_task,
+                .help   = "watch edmac channels"
+            },
             {
                 .name   = "Overexposure warning in LiveView",
                 .priv   = overexpo_toggle,
