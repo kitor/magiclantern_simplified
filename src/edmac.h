@@ -48,6 +48,27 @@
 #define EDMAC_4_BYTES_PER_TRANSFER          0x40000000
 #define EDMAC_2_BYTES_PER_TRANSFER          0x20000000
 
+#if defined(CONFIG_DIGIC_8X)
+struct edmac_info
+{
+    // Extra "S" fields, not sure of meaning
+    unsigned int off1s; //D8+
+    unsigned int off1a;
+    unsigned int off1b;
+    unsigned int off2s; //D8+
+    unsigned int off2a;
+    unsigned int off2b;
+    unsigned int off3;
+    unsigned int xs; //D8+
+    unsigned int xa;
+    unsigned int xb;
+    unsigned int ys; //D8+
+    unsigned int ya;
+    unsigned int yb;
+    unsigned int xn;
+    unsigned int yn;
+};
+#else
 struct edmac_info
 {
     unsigned int off1a;
@@ -62,6 +83,7 @@ struct edmac_info
     unsigned int xn;
     unsigned int yn;
 };
+#endif
 
 // For some more, not terribly clear info, see:
 // https://magiclantern.fandom.com/wiki/Register_Map#EDMAC
