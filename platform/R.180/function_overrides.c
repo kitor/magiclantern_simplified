@@ -79,6 +79,12 @@ void platform_post_init()
     // it will behave as "stock" MagicLantern code.
     pMemoryMgr = MMGR_DEFAULT_POOL;
 
+    // temporary hack for LV_STRUCT_PTR to work
+    uint32_t * lv_struct = LV_STRUCT_PTR;
+    lv_struct[1] = SHUTTER_1_50; //shutter
+    lv_struct[1] = APERTURE_3_5; //aperture
+    lv_struct[1] = ISO_800; //iso
+    lv_struct[1] = 0x10; //timer, dunno
     // Disable for now, region is uncached - causes perf problems in LV
     return;
     uint32_t MMGR_REGION_SIZE = (uint32_t)&MMGR_REGION_END - (uint32_t)&MMGR_REGION_START + 1;

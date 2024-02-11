@@ -183,10 +183,10 @@
 
 #define LV_BOTTOM_BAR_DISPLAYED 0x0 // wrong, fake bool
 // below definitely wrong, just copied from 50D
-#define FRAME_SHUTTER *(uint8_t*)(MEM(LV_STRUCT_PTR) + 0x56)
-#define FRAME_APERTURE *(uint8_t*)(MEM(LV_STRUCT_PTR) + 0x57)
-#define FRAME_ISO *(uint16_t*)(MEM(LV_STRUCT_PTR) + 0x58)
-#define FRAME_SHUTTER_TIMER *(uint16_t*)(MEM(LV_STRUCT_PTR) + 0x5c)
+#define FRAME_SHUTTER *(uint8_t*)(MEM(LV_STRUCT_PTR) + 1)
+#define FRAME_APERTURE *(uint8_t*)(MEM(LV_STRUCT_PTR) + 2)
+#define FRAME_ISO *(uint16_t*)(MEM(LV_STRUCT_PTR) + 3)
+#define FRAME_SHUTTER_TIMER *(uint16_t*)(MEM(LV_STRUCT_PTR) + 4)
 #define FRAME_BV ((int)FRAME_SHUTTER + (int)FRAME_APERTURE - (int)FRAME_ISO)
 // this block all copied from 50D, and probably wrong, though likely safe
 #define FASTEST_SHUTTER_SPEED_RAW 160
