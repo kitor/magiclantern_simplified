@@ -150,12 +150,13 @@ extern uint32_t DeleteEventFlag(uint32_t event_id);
  * Values stolen from `EFsVcopy` which seems to be the only user of
  * `Engine::MemoryToMemoryEsub1.c` methods.
  */
-const uint32_t mem2mem_RD_CH = 46;
-const uint32_t mem2mem_WR_CH = 13;
+
 const uint32_t mem2mem_devices[2] = {0, 7};
 const uint32_t mem2mem_resources[2] = {0x100AD, 0x100BB};
-const uint32_t mem2mem_mode = 0x0; // 1 - 32bit, 2 - 64bit, 3 - 128bit
-const uint32_t mem2mem_wait_ms = 10;
+#define MEM2MEM_RD_CH 46
+#define MEM2MEM_WR_CH 13
+#define MEM2MEM_MODE 0x0 // 1 - 32bit, 2 - 64bit, 3 - 128bit
+#define MEM2MEM_WAIT_MS 50
 
 struct LockEntry * mem2mem_lock;
 uint32_t mem2mem_done;
@@ -173,7 +174,7 @@ uint32_t mem2mem_emdac_copy_d8(void * src, void * dst, struct edmac_info * src_i
     /**
      * "InitMem2MemPath" stage
      */
-    DryosDebugMsg(0, 15, "InitMem2MemPath");
+    //DryosDebugMsg(0, 15, "InitMem2MemPath");
     mem2mem_done = 0;
     mem2mem_flag = CreateEventFlag_strictly("Mem2MemD8Copy");
     mem2mem_lock = CreateResLockEntry(mem2mem_resources, sizeof(mem2mem_resources));
@@ -186,39 +187,39 @@ uint32_t mem2mem_emdac_copy_d8(void * src, void * dst, struct edmac_info * src_i
 
     PwrMng_WakeSubChips(mem2mem_devices);
 
-    uint32_t channels[2] = {mem2mem_RD_CH, mem2mem_WR_CH}; //1st read, 2nd write
+    uint32_t channels[2] = {MEM2MEM_RD_CH, MEM2MEM_WR_CH}; //1st read, 2nd write
     MemToMemE1_SetupEDMAC(channels);
     MemToMemE1_RegisterCBR(mem2mem_copy_comp_CBR, NULL);
 
     /**
      * "StartMem2MemPath" stage
      */
-    DryosDebugMsg(0, 15, "StartMem2MemPath");
+    //DryosDebugMsg(0, 15, "StartMem2MemPath");
 
     // equiv to MemToMemE1_set_address(&buf0);
-    edmac_set_address(mem2mem_WR_CH, dst);
-    edmac_set_address(mem2mem_RD_CH, src);
+    edmac_set_address(MEM2MEM_WR_CH, dst);
+    edmac_set_address(MEM2MEM_RD_CH, src);
 
     // equiv to MemToMemE1_set_size_and_flags(...);
-    edmac_set_size(mem2mem_WR_CH, dst_info);
-    edmac_set_size(mem2mem_RD_CH, src_info);
-    edmac_set_transfer_mode(mem2mem_WR_CH, mem2mem_mode);
-    edmac_set_transfer_mode(mem2mem_RD_CH, mem2mem_mode);
+    edmac_set_size(MEM2MEM_WR_CH, dst_info);
+    edmac_set_size(MEM2MEM_RD_CH, src_info);
+    edmac_set_transfer_mode(MEM2MEM_WR_CH, MEM2MEM_MODE);
+    edmac_set_transfer_mode(MEM2MEM_RD_CH, MEM2MEM_MODE);
 
     // equiv to MemToMemE1_copy_start();
-    StartEDmac_maybe(mem2mem_WR_CH);
-    StartEDmac_maybe(mem2mem_RD_CH);
-    ConnectReadEDmac_maybe(mem2mem_RD_CH);
+    StartEDmac_maybe(MEM2MEM_WR_CH);
+    StartEDmac_maybe(MEM2MEM_RD_CH);
+    ConnectReadEDmac_maybe(MEM2MEM_RD_CH);
 
-    DryosDebugMsg(0, 15, "WaitForData");
+    //DryosDebugMsg(0, 15, "WaitForData");
     // Wait for transfer to end, or timeout
-    WaitForAnyEventFlag(mem2mem_flag, 1, mem2mem_wait_ms);
+    WaitForAnyEventFlag(mem2mem_flag, 1, MEM2MEM_WAIT_MS);
     ClearEventFlag(mem2mem_flag, 1);
 
     /**
      * "TermMem2MemPath" stage
      */
-    DryosDebugMsg(0, 15, "TermMem2MemPath");
+    //DryosDebugMsg(0, 15, "TermMem2MemPath");
     MemToMemE1_ResetCBR();
     MemToMemE1_ClearEdmacCBR();
     PwrMng_SuspendSubChips(mem2mem_devices);
@@ -381,7 +382,7 @@ void* edmac_copy_rectangle_cbr_start(void *dst, void *src,
     };
 
     mem2mem_emdac_copy_d8(src, dst, &src_region, &dst_region);
-
+    cbr_w(NULL); // clears edmac_active, we have no CBR to do this  
     return dst;
 }
 

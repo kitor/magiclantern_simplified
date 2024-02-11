@@ -129,7 +129,7 @@ volatile PROP_INT(PROP_SHOOTING_MODE, shooting_mode_custom);
 PROP_HANDLER(PROP_SHOOTING_MODE_2)
 {
     shooting_mode = buf[0];
-
+    DryosDebugMsg(0, 15, "mode change %d", shooting_mode);
     #ifdef CONFIG_NO_DEDICATED_MOVIE_MODE
     ae_mode_movie = shooting_mode == SHOOTMODE_M;
     #endif
@@ -159,7 +159,7 @@ bool FAST is_movie_mode()
             #endif
         ;
     #else
-    return shooting_mode == SHOOTMODE_MOVIE;
+    return shooting_mode == SHOOTMODE_M;
     #endif
 }
 

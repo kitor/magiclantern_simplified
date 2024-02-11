@@ -19,6 +19,8 @@
 #define BGMT_PLAY                    0x0C
 #define BGMT_TRASH                   0x0E
 
+#define BGMT_REC                     0x21  //0x22 UNPRESS
+
 #define BGMT_PRESS_RIGHT             0x2D
 #define BGMT_UNPRESS_RIGHT           0x2E
 #define BGMT_PRESS_LEFT              0x2F
@@ -51,7 +53,6 @@
  * MODE button: 0x35 PRESS, 0x36 UNPRESS
  * Backlight:   0x3D PRESS, 0x3E UNPRESS
  * LOCK:        0x92 LOCK , 0x93 UNLOCK
- * RECORD:      0x21 PRESS, 0x22 UNPRESS
  * M-Fn:        0x1A PRESS, 0x1B UNPRESS
  * AF ON:       0x81 PRESS, 0x82 UNPRESS
  * Star:        0x85 PRESS

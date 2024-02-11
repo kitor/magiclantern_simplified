@@ -153,7 +153,7 @@ char** IVT = (char **)0x19390;
 const uint32_t devs[] = {0,1,2,3,4,5,6,7};
 extern void PwrMng_WakeSubChips(const uint32_t *list);
 extern void PwrMng_SuspendSubChips(const uint32_t *list);
-
+extern uint32_t dump_file(char *name,void *buf,size_t size);
 /*
  * Dump all EDMAC channels that have params set
  *
@@ -179,9 +179,15 @@ static void watch_edmac_channels()
         ys = ch->ys_xs & 0xFFFF;
         w = xa * xn + xb;
         h = ya * yn + yb;
-        DryosDebugMsg(0, 15, "CH %02d: %08x %08x %s %d", i, ch, ch->ram_addr,  name);
+        DryosDebugMsg(0, 15, "CH %02d: %08x %08x %s", i, ch, ch->ram_addr,  name);
         DryosDebugMsg(0, 15, "    x %d*%d+%d y %d*%d+%d = %dx%d", xn, xa, xb, yn, ya, yb, w, h);
         DryosDebugMsg(0, 15, "    xs %d ys %d off3 %d", xs, ys, ch->off3);
+        if(ch->ram_addr)
+        {
+            char name [24];
+            snprintf(name, sizeof(name), "%d.dump", i);
+            dump_file(name, ch->ram_addr, w*h);
+        }
         //DryosDebugMsg(0, 15, "    p %08x",  ch->PackUnpackInfo);
     }
     PwrMng_SuspendSubChips(devs);

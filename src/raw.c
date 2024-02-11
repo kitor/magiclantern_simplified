@@ -2489,7 +2489,10 @@ void raw_lv_request_bpp(int bpp)
         const uint32_t PACK32_MODE = 0xd0008094; // plausible from rom, e.g. e0159eee on 200d 1.0.1,
                                                  // compare 5d3 1.2.3 ff57c7c8
     #elif defined(CONFIG_R)
+        // not sure, yolo out?
         const uint32_t PACK32_MODE = 0xd0008094; // based on 200D above
+        give_semaphore(raw_sem);
+        return;
     #endif
     enum {
         MODE_16BIT = 0x130,

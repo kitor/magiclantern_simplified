@@ -2488,7 +2488,8 @@ static void FAST edmac_spy_poll(int last_expiry, void* unused)
     // SJE FIXME this MMIO seems the same on 200D and old cams,
     // but it should still be turned into a named constant or something.
     // See usage near string "hSemSio[channel]" by both 200D and 5D3.
-    if (!(MEM(0xC0400008) & 0x2))
+    // EOS R: d0100008
+    if (!(MEM(0xd0100008) & 0x2)) // was 0xC0400008
     {
         return;
     }
@@ -2566,7 +2567,9 @@ static void compress_task()
         if (msg == (uint32_t) INT_MAX)
         {
             /* start recording */
-
+            call("lv_set_mm", 1);
+            call("lv_set_raw_wp", 0);
+            call("lv_save_raw", 1);
             if (OUTPUT_COMPRESSION == 0)
             {
                 /* get exclusive access to our edmac channels */
@@ -2795,13 +2798,11 @@ unsigned int FAST raw_rec_vsync_cbr(unsigned int unused)
     if (!RAW_IS_RECORDING) return 0;
     if (!raw_lv_settings_still_valid()) { raw_recording_state = RAW_FINISHING; return 0; }
     if (buffer_full) return 0;
-    
     /* double-buffering */
     raw_lv_redirect_edmac(fullsize_buffers[fullsize_buffer_pos % 2]);
 
     /* advance to next buffer for the upcoming capture */
     int next_fullsize_buffer_pos = (fullsize_buffer_pos + 1) % 2;
-
     process_frame(next_fullsize_buffer_pos);
 
     fullsize_buffer_pos = next_fullsize_buffer_pos;
@@ -3891,8 +3892,8 @@ unsigned int raw_rec_keypress_cbr(unsigned int key)
         return 0;
 
     /* start/stop recording with the LiveView key */
-    int rec_key_pressed = (key == MODULE_KEY_LV || key == MODULE_KEY_REC);
-    
+    //int rec_key_pressed = (key == MODULE_KEY_LV || key == MODULE_KEY_REC);
+    int rec_key_pressed = (key == MODULE_KEY_PRESS_SET);
     /* ... or SET on 5D2/50D */
     if (cam_50d || cam_5d2) rec_key_pressed = (key == MODULE_KEY_PRESS_SET);
     

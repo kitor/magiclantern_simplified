@@ -147,7 +147,7 @@
 
 #define YUV422_HD_BUFFER_DMA_ADDR 0x0 // it expects this to be shamem_read(some_DMA_ADDR)
 
-#define RAW_LV_EDMAC_CHANNEL_ADDR 0xd0058000 // channel 24
+#define RAW_LV_EDMAC_CHANNEL_ADDR 0xd0420200 // channel 3. EDOMAIN_EDMAC_1_WR_M1
 #define SHAD_GAIN_REGISTER 0xd0008030 // plausible looking from ROM code, though untested
 
 /* WRONG! */
@@ -174,7 +174,7 @@
 
 /* WRONG: copied straight from 200d/50d */
 // Definitely wrong / hacks / no testing at all:
-#define LV_STRUCT_PTR 0xaf2d0
+#define LV_STRUCT_PTR 0x9D9A0000
 
 #define IMGPLAY_ZOOM_LEVEL_ADDR (0x2CBC) //wrong
 

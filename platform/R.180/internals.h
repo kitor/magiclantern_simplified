@@ -21,7 +21,8 @@
 #define CONFIG_LIVEVIEW
 
 /* hooking EFV_STATE ends with EvfCap crashes, requires investigation */
-//#define CONFIG_STATE_OBJECT_HOOKS
+#define CONFIG_STATE_OBJECT_HOOKS
+#define CONFIG_EVF_STATE_SYNC
 
 /** Large total memory, leading to unusual memory mapping,
  * CACHEABLE / UNCACHEABLE changes
