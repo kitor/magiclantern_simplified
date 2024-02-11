@@ -347,18 +347,18 @@ void* edmac_copy_rectangle_cbr_start(void *dst, void *src,
 
     if ((src == NULL) || (dst == NULL))
     {
-        ASSERT(0);
+        //ASSERT(0);
         return NULL;
     }
 
     // Old code doesn't explain why it checks this, my guess is
     // because DMA transfers don't invalidate CPU cache, since
     // they're outside of the CPU.
-    ASSERT(dst == UNCACHEABLE(dst));
+    //ASSERT(dst == UNCACHEABLE(dst));
 
     /* clean the cache before reading from regular (cacheable) memory */
     /* see FIO_WriteFile for more info */
-    if (src == CACHEABLE(src))
+    if (src != UNCACHEABLE(src)) // inverted to make 2GB compatible
     {
         sync_caches();
     }
