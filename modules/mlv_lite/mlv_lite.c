@@ -2566,7 +2566,8 @@ static void FAST edmac_spy_poll(int last_expiry, void* unused)
     // SJE FIXME this MMIO seems the same on 200D and old cams,
     // but it should still be turned into a named constant or something.
     // See usage near string "hSemSio[channel]" by both 200D and 5D3.
-    if (!(MEM(0xC0400008) & 0x2))
+    // EOS R: d0100008
+    if (!(MEM(0xd0100008) & 0x2)) // was 0xC0400008
     {
         return;
     }
