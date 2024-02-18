@@ -183,7 +183,7 @@ uint32_t mem2mem_emdac_copy_d8(void * src, void * dst, struct edmac_info * src_i
     //DryosDebugMsg(0, 15, "InitMem2MemPath");
     mem2mem_done = 0;
     mem2mem_flag = CreateEventFlag_strictly("Mem2MemD8Copy");
-    mem2mem_lock = CreateResLockEntry(mem2mem_resources, sizeof(mem2mem_resources));
+    mem2mem_lock = CreateResLockEntry(mem2mem_resources, 2);
     uint32_t err = LockEngineResources(mem2mem_lock);
     if(err > 0)
     {
