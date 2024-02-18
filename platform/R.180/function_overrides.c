@@ -75,6 +75,12 @@ int GetSizeOfMaxRegion(int* max_region)
  */
 void platform_post_init()
 {
+    // hardcoded LV_STRUCT for hack in consts.h
+     *(uint8_t*)0x9D9A0000 = 0x10; // FRAME_SHUTTER
+     *(uint8_t*)0x9D9A0004 = 0x10; // FRAME_APERTURE
+    *(uint16_t*)0x9D9A0008 = 0x10; // FRAME_ISO
+    *(uint16_t*)0x9D9A000C = 0x10; // FRAME_SHUTTER_TIMER
+
     // set default AllocateMemory pool as fallback - in case of init failure
     // it will behave as "stock" MagicLantern code.
     pMemoryMgr = MMGR_DEFAULT_POOL;
@@ -193,6 +199,55 @@ int _FIO_GetFileSize(const char * filename, uint32_t * size){
     return code;
 }
 
+/** Stubs to make mlv_lite happy **/
+// No shamem on D8, reads are done directly.
+uint32_t shamem_read(uint32_t addr)
+{
+     if(addr >> 28 != 0xD)
+     {
+       // For now block any attempts to r/w outside 0xDxxxxxxx range.
+       // Those are likely just wrong, coming from legacy code.
+       // Log them instead.
+      DryosDebugMsg(0, 15, "shamem_read from %08x - aborted", addr);
+      return 0;
+     }
+     // leaving this in purpose for now, hard to debug wrong address reads othervise
+     // remove when build is stable...
+     //DryosDebugMsg(0, 15, "shamem_read from %08x - accepted", addr);
+     //msleep(100);
+     return *(uintptr_t*)addr;
+}
+
+// SRM doesnt, work, substitute those two.
+struct memSuite * srm_malloc_suite(int num_requested_buffers)
+{
+    return 0; // always fail
+}
+
+void srm_free_suite(struct memSuite * suite)
+{
+    return;
+}
+
+// ErrCardForLVApp_handler DNE on R... maybe because it is always LV?
+// We need only address of that handler so this should do.
+void ErrCardForLVApp_handler()
+{
+    return;
+}
+
+// Memory patching... remove after making MMU patch work on R.
+int patch_instruction(uintptr_t a, uint32_t b, uint32_t c, const char *d)
+{
+    return -1;
+}
+
+int unpatch_memory(uintptr_t addr)
+{
+    return 0;
+}
+
+
 /** WRONG: temporary overrides to get CONFIG_HELLO_WORLD working **/
 
 void SetEDmac(unsigned int channel, void *address, struct edmac_info *ptr, int flags)
@@ -253,11 +308,6 @@ void UnregisterEDmacPopCBR(int channel)
 void _EngDrvOut(uint32_t reg, uint32_t value)
 {
     return;
-}
-
-uint32_t shamem_read(uint32_t addr)
-{
-    return 0;
 }
 
 void _engio_write(uint32_t* reg_list)

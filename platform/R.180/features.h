@@ -29,6 +29,10 @@
 #define FEATURE_GLOBAL_DRAW
 #define FEATURE_CROPMARKS
 
+// These two needed to enable mlv_lite
+#define FEATURE_PICSTYLE
+#define CONFIG_RAW_LIVEVIEW
+
 // enable for testing gui structure changes
 #define CONFIG_RESTORE_AFTER_FORMAT
 
