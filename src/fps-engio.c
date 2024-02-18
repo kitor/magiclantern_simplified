@@ -531,7 +531,10 @@ int get_current_shutter_reciprocal_x1000()
 // TODO: Cleanup 70D once fps override feature is fixed
 // till then use the fallback. Do it this way to have fast ettr
 // and keep frame_shutter timer enabled in consts.h
-#elif defined(FRAME_SHUTTER_TIMER) && !defined(CONFIG_70D)
+//
+// kitor: disabled on D8 due to crashes.
+// FRAME_SHUTTER_TIMER has to be wrong...
+#elif defined(FRAME_SHUTTER_TIMER) && !defined(CONFIG_70D) && !defined(CONFIG_DIGIC_VII)
     int timer = FRAME_SHUTTER_TIMER;
 
     #ifdef FEATURE_SHUTTER_FINE_TUNING
