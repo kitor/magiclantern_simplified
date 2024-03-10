@@ -490,6 +490,36 @@ configs = {
         },
     },
 
+    "SX740_102" : {
+        "CPU"               : CPU.DIGIC_8,
+        "IVT"               : 0x17cfc,
+        "IVT_GIC"           : 0x000186a0,
+
+        # those are in order in single block
+        "UnkArr"            : 0xe0d25dd8,
+        "PackUnpackId"      : 0xe0d26000,
+        "DmacInfo"          : 0xe0d26130,
+        "PackUnpackInfo"    : 0xe0d26390,
+        "DmacBoomerInfo"    : 0xe0d26558,
+        "InterruptHandlers" : 0xe0d268e8,
+
+        # those are in order in single block
+        "BoomerSelector1"   : 0xe0f060d0,
+        "BoomerInputPort"   : 0xe0f06454,
+        "BoomerVdKickInfo"  : 0xe0f067d8,
+
+        "ISRs" : {
+            0xe05205b2 | THUMB_FLAG : "EDMAC_ReadISR",
+            0xe052066c | THUMB_FLAG : "EDMAC_WriteISR",
+            0xe051e926 | THUMB_FLAG : "EDMAC_UnknownISR",
+        },
+
+        # format: dst : (skip, count), like romcpy.sh
+        "romcpy" : {
+            0x4000 : (0x101ced8, 0x1f770),
+        },
+    },
+
     "RP_160" : {
         "CPU"               : CPU.DIGIC_8,
         "IVT"               : 0x1ba48,
