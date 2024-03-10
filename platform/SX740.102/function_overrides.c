@@ -184,17 +184,25 @@ void _EngDrvOut(uint32_t reg, uint32_t value)
     return;
 }
 
+// No shamem on D8, reads are done directly.
 uint32_t shamem_read(uint32_t addr)
 {
-    return 0;
+     if(addr >> 28 != 0xD)
+     {
+       // For now block any attempts to r/w outside 0xDxxxxxxx range.
+       // Those are likely just wrong, coming from legacy code.
+       // Log them instead.
+      DryosDebugMsg(0, 15, "shamem_read from %08x - aborted", addr);
+      return 0;
+     }
+     // leaving this in purpose for now, hard to debug wrong address reads othervise
+     // remove when build is stable...
+     //DryosDebugMsg(0, 15, "shamem_read from %08x - accepted", addr);
+     //msleep(100);
+     return *(uintptr_t*)addr;
 }
 
 void _engio_write(uint32_t* reg_list)
 {
     return;
-}
-
-unsigned int UnLockEngineResources(struct LockEntry *lockEntry)
-{
-    return 0;
 }

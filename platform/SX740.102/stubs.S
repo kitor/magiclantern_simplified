@@ -272,3 +272,38 @@ DATA_PTR(   0x12ca4,  LiveViewApp_dialog)                   // in StartLiveViewA
                                                             // On R, Layer 1 is used only by StartLiveViewAFFrameApp()
 /* Experiments */
 THUMB_FN(0xe04c2b3c, GUI_SetImgComposition)                 // For enabling raw photo capability
+
+
+// For new EDMAC API
+THUMB_FN(0xe0805c62, PwrMng_WakeSubChips)
+THUMB_FN(0xe0805c90, PwrMng_SuspendSubChips)
+
+// EFsVcopy path DNE on SX740, including m2m esub1 stuff
+// It has esub5 variant, not usable for us (?) but at least makes easy to find the stubs
+//THUMB_FN(, MemToMemE1_RegisterCBR)
+//THUMB_FN(, MemToMemE1_ResetCBR)
+//THUMB_FN(, MemToMemE1_ClearEdmacCBR)
+THUMB_FN(0xe051f192, edmac_set_address)
+THUMB_FN(0xe051f19e, edmac_set_size)
+THUMB_FN(0xe051f694, edmac_set_transfer_mode)
+THUMB_FN(0xe051efb0, StartEDmac_maybe)
+THUMB_FN(0xe051e63a, ConnectReadEDmac_maybe)
+
+//THUMB_FN(, MemToMemE1_SetupEDMAC)
+THUMB_FN(0xe051e674, edmac_reset_channel)
+THUMB_FN(0xe051eb40, edmac_reset_boomer_vdkick)
+THUMB_FN(0xe051ebbe, edmac_select_boomer)
+THUMB_FN(0xe051e75e, RegisterEDmacCompleteCBR)
+THUMB_FN(0xe051eaf2, UnregisterEDmacCompleteCBR)
+THUMB_FN(0xe051ec96, edmac_reset_packunpack_mode)
+THUMB_FN(0xe051ec52, edmac_stop_boomer_maybe)
+
+THUMB_FN(0xe0536cca, CreateResLockEntry)
+THUMB_FN(0xe0536eb2, LockEngineResources)
+THUMB_FN(0xe0536f52, UnLockEngineResources)
+
+THUMB_FN(0xe0541702, CreateEventFlag_strictly)
+THUMB_FN(0xe053212a, DeleteEventFlag)
+THUMB_FN(0xe0532248, WaitForAnyEventFlag)
+THUMB_FN(0xe0532444, SetEventFlag)
+THUMB_FN(0xe0532472, ClearEventFlag)

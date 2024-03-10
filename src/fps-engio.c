@@ -53,7 +53,7 @@
     #define FPS_REGISTER_A 0xd0006008
     #define FPS_REGISTER_B 0xd0006014
     #define FPS_REGISTER_CONFIRM_CHANGES 0xd0006000
-#elif defined(CONFIG_R)
+#elif defined(CONFIG_R) || defined(CONFIG_SX740)
     // via `M SetReadOut` debug message -> base changed again to `0xd0406190`
     #define FPS_REGISTER_A 0xd0406198
     #define FPS_REGISTER_B 0xd04061A4
@@ -66,12 +66,17 @@
     #define FPS_REGISTER_A_VALUE ((int) shamem_read(FPS_REGISTER_A))
     #define FPS_REGISTER_A_DEFAULT_VALUE ((int) shamem_read(FPS_REGISTER_A+4))
     #define FPS_REGISTER_B_VALUE ((int) shamem_read(FPS_REGISTER_B))
-#elif defined(CONFIG_200D) || defined(CONFIG_R)
+#elif defined(CONFIG_200D)
     extern int get_fps_register_b_val(void);
     extern int get_shutter_speed_AccumH(void);
     #define FPS_REGISTER_A_VALUE (get_shutter_speed_AccumH())
     #define FPS_REGISTER_A_DEFAULT_VALUE (0x490) // don't know the real location yet
     #define FPS_REGISTER_B_VALUE (get_fps_register_b_val())
+#elif defined(CONFIG_DIGIC_VIII)
+    // On D8 those are readable directly / shamem_read just reads mem directly
+    #define FPS_REGISTER_A_VALUE ((int) shamem_read(FPS_REGISTER_A))
+    #define FPS_REGISTER_A_DEFAULT_VALUE (0x490) // don't know the real location yet
+    #define FPS_REGISTER_B_VALUE ((int) shamem_read(FPS_REGISTER_B))
 #endif
 
 #ifdef CONFIG_7D
