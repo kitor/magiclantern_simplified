@@ -172,12 +172,13 @@
 #define PLAY_MODE (gui_state == GUISTATE_PLAYMENU && CURRENT_GUI_MODE == GUIMODE_PLAY)
 #define MENU_MODE (gui_state == GUISTATE_PLAYMENU && CURRENT_GUI_MODE == GUIMODE_MENU)
 
-/* WRONG: struct hardcoded into a safe place (?) in function_ovverrides platform init */
-#define LV_STRUCT_PTR 0x9D9A0000
-#define FRAME_SHUTTER *(uint8_t*)(MEM(LV_STRUCT_PTR) + 0)
-#define FRAME_APERTURE *(uint8_t*)(MEM(LV_STRUCT_PTR) + 0x4)
-#define FRAME_ISO *(uint16_t*)(MEM(LV_STRUCT_PTR) + 0x8)
-#define FRAME_SHUTTER_TIMER *(uint16_t*)(MEM(LV_STRUCT_PTR) + 0xC)
+// via 5D3. X-refd from functionw with "MarkCkeckFrame %d" debug msg
+// offsets are wrong, to be tested
+#define VIDEO_PARAMETERS_SRC_3 MEM(0x7e00)
+#define FRAME_SHUTTER_TIMER (*(uint16_t*)(VIDEO_PARAMETERS_SRC_3+0))
+#define FRAME_ISO (*(uint8_t*)(VIDEO_PARAMETERS_SRC_3+0x4))
+#define FRAME_APERTURE (*(uint8_t*)(VIDEO_PARAMETERS_SRC_3+0xd))
+#define FRAME_SHUTTER (*(uint8_t*)(VIDEO_PARAMETERS_SRC_3+0xe))
 #define FRAME_BV ((int)FRAME_SHUTTER + (int)FRAME_APERTURE - (int)FRAME_ISO)
 
 /* WRONG: copied straight from 200d/50d */

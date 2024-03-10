@@ -75,12 +75,6 @@ int GetSizeOfMaxRegion(int* max_region)
  */
 void platform_post_init()
 {
-    // hardcoded LV_STRUCT for hack in consts.h
-     *(uint8_t*)0x9D9A0000 = 0x10; // FRAME_SHUTTER
-     *(uint8_t*)0x9D9A0004 = 0x10; // FRAME_APERTURE
-    *(uint16_t*)0x9D9A0008 = 0x10; // FRAME_ISO
-    *(uint16_t*)0x9D9A000C = 0x10; // FRAME_SHUTTER_TIMER
-
     // set default AllocateMemory pool as fallback - in case of init failure
     // it will behave as "stock" MagicLantern code.
     pMemoryMgr = MMGR_DEFAULT_POOL;
