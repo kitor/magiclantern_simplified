@@ -149,16 +149,6 @@ void AbortEDmac(unsigned int channel)
     return;
 }
 
-void RegisterEDmacCompleteCBR(int channel, void (*cbr)(void*), void* cbr_ctx)
-{
-    return;
-}
-
-void UnregisterEDmacCompleteCBR(int channel)
-{
-    return;
-}
-
 void RegisterEDmacAbortCBR(int channel, void (*cbr)(void*), void* cbr_ctx)
 {
     return;
@@ -200,6 +190,35 @@ uint32_t shamem_read(uint32_t addr)
      //DryosDebugMsg(0, 15, "shamem_read from %08x - accepted", addr);
      //msleep(100);
      return *(uintptr_t*)addr;
+}
+
+// SRM doesnt, work, substitute those two.
+struct memSuite * srm_malloc_suite(int num_requested_buffers)
+{
+    return 0; // always fail
+}
+
+void srm_free_suite(struct memSuite * suite)
+{
+    return;
+}
+
+// ErrCardForLVApp_handler DNE on R... maybe because it is always LV?
+// We need only address of that handler so this should do.
+void ErrCardForLVApp_handler()
+{
+    return;
+}
+
+// Memory patching... remove after making MMU patch work on R.
+int patch_instruction(uintptr_t a, uint32_t b, uint32_t c, const char *d)
+{
+    return -1;
+}
+
+int unpatch_memory(uintptr_t addr)
+{
+    return 0;
 }
 
 void _engio_write(uint32_t* reg_list)

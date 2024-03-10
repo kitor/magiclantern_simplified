@@ -21,6 +21,8 @@
 #define BGMT_PRESS_ZOOM_OUT          0x13
 #define BGMT_UNPRESS_ZOOM_OUT        0x14
 
+#define BGMT_REC                     0x20  //0x21 UNPRESS
+
 // This is really Wireless button, not one with Trash symbol under it.
 #define BGMT_TRASH                   0x2B
 

@@ -114,6 +114,9 @@
 
 #define YUV422_HD_BUFFER_DMA_ADDR 0x0 // it expects this to be shamem_read(some_DMA_ADDR)
 
+#define RAW_LV_EDMAC_CHANNEL_ADDR 0xd0420200 // channel 3. EDOMAIN_EDMAC_1_WR_M1
+#define SHAD_GAIN_REGISTER        0xd0008030 // WRONG, taken directly from 200D code
+
 /* WRONG! */
 #define HALFSHUTTER_PRESSED         0  // this should exists on ICU as SX740 has no MPU.
 
@@ -132,9 +135,20 @@
 #define PLAY_MODE (gui_state == GUISTATE_PLAYMENU && CURRENT_GUI_MODE == GUIMODE_PLAY)
 #define MENU_MODE (gui_state == GUISTATE_PLAYMENU && CURRENT_GUI_MODE == GUIMODE_MENU)
 
+// via 5D3. X-refd from functionw with "MarkCkeckFrame %d" debug msg
+
+// +0x0 changes with whatever
+#define VIDEO_PARAMETERS_SRC_3 MEM(0x79e8)
+#define FRAME_SHUTTER_TIMER (*(uint16_t*)(VIDEO_PARAMETERS_SRC_3+0))
+// +0xb starts at 0x17 at iso 100 and goes down, wraps around?
+#define FRAME_ISO (*(uint8_t*)(VIDEO_PARAMETERS_SRC_3+0x4)) 
+// +0x1 is 0x18 at f/1.8, goes down to 0xf at f/5.6 then stops
+#define FRAME_APERTURE (*(uint8_t*)(VIDEO_PARAMETERS_SRC_3+0xd))
+#define FRAME_SHUTTER (*(uint8_t*)(VIDEO_PARAMETERS_SRC_3+0xe))
+#define FRAME_BV ((int)FRAME_SHUTTER + (int)FRAME_APERTURE - (int)FRAME_ISO)
 /* WRONG: copied straight from 200d/50d */
 // Definitely wrong / hacks / no testing at all:
-#define LV_STRUCT_PTR 0xaf2d0
+
 
 #define IMGPLAY_ZOOM_LEVEL_ADDR (0x2CBC) //wrong
 
@@ -143,11 +157,7 @@
 
 #define LV_BOTTOM_BAR_DISPLAYED 0x0 // wrong, fake bool
 // below definitely wrong, just copied from 50D
-#define FRAME_SHUTTER *(uint8_t*)(MEM(LV_STRUCT_PTR) + 0x56)
-#define FRAME_APERTURE *(uint8_t*)(MEM(LV_STRUCT_PTR) + 0x57)
-#define FRAME_ISO *(uint16_t*)(MEM(LV_STRUCT_PTR) + 0x58)
-#define FRAME_SHUTTER_TIMER *(uint16_t*)(MEM(LV_STRUCT_PTR) + 0x5c)
-#define FRAME_BV ((int)FRAME_SHUTTER + (int)FRAME_APERTURE - (int)FRAME_ISO)
+
 // this block all copied from 50D, and probably wrong, though likely safe
 #define FASTEST_SHUTTER_SPEED_RAW 160
 #define MAX_AE_EV 2

@@ -1,5 +1,5 @@
 /** \file
- * edmac-memcpy.c remimplemnetation for R 1.8.0, and likely Digic 8 in general.
+ * edmac-memcpy.c reimplementation for Digic 8 in general.
  */
 /*
  * Copyright (C) 2024 Magic Lantern Team
@@ -22,7 +22,7 @@
  */
 
 // mimic edmac-memcpy.c
-#ifndef CONFIG_EDMAC_MEMCPY_R
+#ifndef CONFIG_EDMAC_MEMCPY_D8
 #include <dryos.h>
 #include <edmac.h>
 #include <arm-mcr.h>

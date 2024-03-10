@@ -539,7 +539,7 @@ int get_current_shutter_reciprocal_x1000()
 //
 // kitor: disabled on D8 due to crashes.
 // FRAME_SHUTTER_TIMER has to be wrong...
-#elif defined(FRAME_SHUTTER_TIMER) && !defined(CONFIG_70D) && !defined(CONFIG_DIGIC_VII)
+#elif defined(FRAME_SHUTTER_TIMER) && !defined(CONFIG_70D) && !defined(CONFIG_DIGIC_VIII)
     int timer = FRAME_SHUTTER_TIMER;
 
     #ifdef FEATURE_SHUTTER_FINE_TUNING

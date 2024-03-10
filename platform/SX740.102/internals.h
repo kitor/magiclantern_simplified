@@ -17,6 +17,14 @@
 /* has LV */
 #define CONFIG_LIVEVIEW
 
+#define CONFIG_STATE_OBJECT_HOOKS
+#define CONFIG_EVF_STATE_SYNC
+
+#define CONFIG_NO_DEDICATED_MOVIE_MODE
+
+// include edmac-d8.c from platform dir
+#define CONFIG_EDMAC_MEMCPY_D8
+
 /* hooking EFV_STATE ends with EvfCap crashes, requires investigation */
 //#define CONFIG_STATE_OBJECT_HOOKS
 
