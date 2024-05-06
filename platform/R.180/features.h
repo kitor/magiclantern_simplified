@@ -36,3 +36,7 @@
 #undef CONFIG_CRASH_LOG
 #undef CONFIG_PROP_REQUEST_CHANGE
 #undef CONFIG_AUTOBACKUP_ROM
+
+// Enable remapping ROM pages to RAM, after DryOS is initialised.
+#define CONFIG_SGI_HANDLERS
+#define CONFIG_MMU_REMAP

@@ -32,6 +32,9 @@
 
 /* high confidence */
 #define DRYOS_ASSERT_HANDLER        0x4000               //from debug_asset function, hard to miss
+#define DRYOS_SGI_HANDLERS_PTR      0x402c               // holds pointer to base of SGI handlers (each is 8 bytes, a pointer and something else)
+#define CANON_ORIG_MMU_TABLE_ADDR   0xe0000000           // ROM start, because ARM. See 200D for full explanation.
+#define PTR_INIT1_TASK              0xe00403b0
 
 #define CURRENT_GUI_MODE            (*(int*)0x8700)      // see SetGUIRequestMode, Compared with param 1 before write to 0x8708
 

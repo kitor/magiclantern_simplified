@@ -556,7 +556,7 @@ static int apply_platform_patches(void)
 }
 
 // called via RPC only, cpu0 triggers on cpu1
-static void change_mmu_tables_cpu1(void *)
+static void change_mmu_tables_cpu1(void * arg)
 {
 
 }
@@ -648,7 +648,7 @@ static int init_remap_mmu(void)
                                            .patch_content = (uint8_t *)&init1_task_wrapper_addr,
                                            .size = 4,
                                            .description = NULL };
-            res = apply_data_patch(&global_mmu_conf, &patch2);
+            int res = apply_data_patch(&global_mmu_conf, &patch2);
             qprintf("init1 patch res: %d\n", res);
             #endif // CONFIG_INIT1_HIJACK
 

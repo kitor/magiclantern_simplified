@@ -332,6 +332,16 @@ DATA_PTR(   0x13874,  LiveViewApp_dialog)                   // in StartLiveViewA
 //THUMB_FN(e0541da6, WINSYS_CreateDialogBox_wrapper)        // Equiv. of `CreateDialogBox()`. Forces layer ID to 0 (GUI)
 //THUMB_FN(e0541b80, WINSYS_CreateDialogBox)                // Actual logic. Takes one more argument than CreateDialogBox() (layer ID)
                                                             // On R, Layer 1 is used only by StartLiveViewAFFrameApp()
+/* MMU */
+THUMB_FN(0xe0004ae2, change_mmu_tables)
+THUMB_FN(0xe000bc80, copy_mmu_tables)
+ARM32_FN(0xe0017cfc, memcpy_dryos)
+THUMB_FN(0xe000be44, dcache_clean_multicore)
+THUMB_FN(0xe051751e, task_create_ex)
+THUMB_FN(0xe00f577c,  send_software_interrupt)
+/* RPC */
+THUMB_FN(0xdf002baa, _request_RPC)
+THUMB_FN(0xdf002bca,  clear_RPC_request)
 
 /**
  * Stuff below should not be enabled. Looks that there are many hardcoded
