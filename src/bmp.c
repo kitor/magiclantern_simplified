@@ -110,7 +110,7 @@ void bmp_draw_to_idle(int value) { bmp_idle_flag = value; }
 struct MARV *rgb_vram_info = NULL;
 static uint8_t *bmp_vram_indexed = NULL;
 // SJE what is an appropriate priority for this task?
-TASK_CREATE( "redraw_task", refresh_yuv_from_rgb_task, 0, 0x1e, 0x1000 );
+//TASK_CREATE( "redraw_task", refresh_yuv_from_rgb_task, 0, 0x1e, 0x1000 );
 #endif
 // SJE should this global live in bmp.c?
 uint32_t ml_refresh_display_needed = 0;
@@ -193,6 +193,7 @@ extern int XimrExe(void *);
 extern struct semaphore *winsys_sem;
 void refresh_yuv_from_rgb(void)
 {
+    return;
     // get our indexed buffer, convert into our real rgb buffer
     uint8_t *b = bmp_vram_indexed;
     uint32_t *rgb_data = NULL;
@@ -1470,7 +1471,9 @@ static void bmp_init(void* unused)
     ASSERT(bmp_lock)
     bvram_mirror_init();
 #ifdef FEATURE_VRAM_RGBA
-    bmp_vram_indexed = malloc(BMP_VRAM_SIZE);
+    // Align to 0x100 per hw requirements
+    bmp_vram_indexed = malloc(BMP_VRAM_SIZE + 0x100);
+    bmp_vram_indexed = UNCACHEABLE((uint8_t*)((((uintptr_t)bmp_vram_indexed + 0x100) >> 8) << 8));
     // initialise to transparent, this allows us to draw over
     // existing screen, rather than replace it, due to checks
     // in refresh_yuv_from_rgb()
@@ -1478,8 +1481,39 @@ static void bmp_init(void* unused)
         memset(bmp_vram_indexed, COLOR_TRANSPARENT_BLACK, BMP_VRAM_SIZE);
     else
         ASSERT(1);
-#endif
 
+    #define VRAM_BUFFER_INDEX 0x16
+    uint32_t old_int = cli();
+
+    // 0xd20138f0 is the 8th layer
+    // d2013800 is possibly displa resolution - already set
+    // d2013810 is "base" register for hardware layers, structure of 8 32bit registers.
+
+    // First field, flags. LSB enables layer, other bits - no idea.
+    //       0x40000305 on OSD (yuv + alpha). OSD is on hardware layer 5 on 80D
+    //       0x40000341 on LV  (yuv). LV in hardware layer 0 on 80D.
+    //       0x00000349 in bootloader (Indexed RGB). I stole that directly. BL always draws to layer 0.
+    *((volatile uint32_t *)0xd20138f0) = 0x349;
+    // this seems to be the magic that enables 0x16 entry, as pushed into "layer vram MMIO" later.
+    *((volatile uint32_t *)0xd20138f4) = VRAM_BUFFER_INDEX << 8;
+    // input offsets
+    *((volatile uint32_t *)0xd20138f8) = -BMP_W_MINUS | (-BMP_H_MINUS << 16);
+    // resolution
+    *((volatile uint32_t *)0xd20138fc) = (BMP_W_PLUS - BMP_W_MINUS) | ((BMP_H_PLUS - BMP_H_MINUS ) << 16);
+    // output offsets
+    *((volatile uint32_t *)0xd2013900) = 0x0;
+
+    // This part HAS TO BE WRITTEN in 32bit writes and IN ORDER.
+    // Our layer "index". I don't know the meaning, Canon code has arrays of predefined numbers.
+    // I choosen mine by a random dice roll /s
+    *((volatile uint32_t *)0xd2030100) = VRAM_BUFFER_INDEX;
+    // Buffer pitch, calculation as is in ROM. Not sure about that 0x20000 flag but it is applied everywhere.
+    *((volatile uint32_t *)0xd2030104) = (((BMP_W_PLUS - BMP_W_MINUS) << 0x10) >> 0x14) - 1 | 0x20000;
+    // VRAM address. Hardware expects buffer address to be rsh 8.
+    // Many things (Ximr included) on d6/7 need 0x100 alignment so perhaps a wider HW requirement.
+    *((volatile uint32_t *)0xd2030108) = (uint32_t)bmp_vram_indexed >> 8;
+    sei(old_int);
+#endif
     _update_vram_params();
 }
 
