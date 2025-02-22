@@ -1465,6 +1465,121 @@ void bmp_zoom(uint8_t* dst, uint8_t* src, int x0, int y0, int denx, int deny)
 void *bmp_lock = NULL;
 
 
+static uint32_t argb_to_yuva(uint32_t rgb)
+{
+    uint8_t b = rgb & 0xFF;
+    uint8_t g = (rgb >> 8)  & 0xFF;
+    uint8_t r = (rgb >> 16) & 0xFF;
+    uint8_t a = (rgb >> 24) & 0xFF;
+
+    double Y = r *  0.299 + g *  0.587 + b *  0.114;
+    double U = r * -0.169 + g * -0.331 + b *  0.500 + 128;
+    double V = r *  0.500 + g * -0.419 + b * -0.081 + 128;
+
+    return a | (uint8_t)V << 8 | (uint8_t)U << 16 | (uint8_t)Y << 24;
+}
+
+static void D6_set_hw_palette()
+{
+    // I'm not sure what is the expected size of a palette.
+    // Bootloader seems to use only 16 colours, in 8 bit indexed we in theory have 256 possible.
+    // For sure our eitire palete that is > 64 colours seems to work.
+    //
+    // Since this is read only, I alocate only size for our palette +- aligmnent.
+    // Colours that would fall out of bounds may be just rendered wrong/randomly.
+    //
+    // Palette has to be aligned to 0x10
+    uint32_t *palette = malloc(RGB_LUT_SIZE * sizeof(uint32_t) + 0x10);
+    palette = (uint32_t*)((((uintptr_t)palette + 0x10) >> 4) << 4);
+
+    // Load and convert our indexed2rgb LUT into YUVA
+    uint32_t *ptr = palette;
+    for(uint32_t i = 0; i < RGB_LUT_SIZE; i++)
+    {
+        *ptr = argb_to_yuva(indexed2rgbLUT[i]);
+        ptr++;
+    }
+
+    // It seems we race some Canon init code. If we write palette too early,
+    // it is not applied.
+    msleep(1000);
+
+    // Tell hardware where to find our palette
+    uint32_t old_int = cli();
+    // Unknown, firmware always writes 0xFF there
+    *((volatile uint32_t *)0xd20139a4) = 0xff;
+    // Load palete from pointer (pointer has to be rsh 4)
+    *((volatile uint32_t *)0xd20139a8) = (uint32_t)palette >> 4;
+    // Applies palette loaded above
+    *((volatile uint32_t *)0xd20139a0) = 1;
+    sei(old_int);
+}
+
+#define MMIO_D6_REGISTER_VRAM   0xd2030100
+#define MMIO_D6_HW_LAYERS_HDMI  0xD2010510
+#define MMIO_D6_HW_LAYERS_PANEL 0xD2013810
+
+// This is randomly selected index for now.
+// Code has 3 structures of [total_layers]*x4 values for those indexes.
+#define D6_VRAM_BUFFER_INDEX 0x15
+// I use "topmost" HW layer. Canon doesn't seem to use it in code.
+#define D6_HW_LAYER_INDEX 7
+
+typedef struct mmio_d6_hw_layer{
+    // MSB toggles Hightlght (zebras) visibility
+    // LSB toggles layer rendering on/off
+    //     Flags    | Kind    | Output | TypeOutput  | Output layer ID (80D)
+    //   0x40000305 | OSD     | LCD    | YUV+Alpha.  | 5
+    //   0x10060305 | OSD     | HDMI   | YUV+Alpha   | 5
+    //   0x40000341 | LV      | LCD    | YUV         | 0
+    //   0x10000341 | LV      | HDMI   | YUV         | 0
+    //   0x00000349 | BootLdr | LCD    | Indexed RGB | 0
+    //   0x00000300 | N/A     | Any    | Inactive    | Layers not used by Canon
+    volatile uint32_t flags;
+    // this seems to be the magic that links vram addr pushed via MMIO_D6_VRAM_SETUP to the layer
+    volatile uint32_t vram_related;
+    // Input buffer offsets. (x_off | ((y_off << 16))
+    volatile uint32_t in_offsets;
+    // Input? buffer resolution. (width | ((height << 16))
+    volatile uint32_t resolution;
+    // Output buffer offsets. (x_off | ((y_off << 16))
+    volatile uint32_t out_offsets;
+    volatile uint32_t unk_0x14;
+    volatile uint32_t unk_0x18;
+    volatile uint32_t unk_0x1c;
+} mmio_d6_hw_layer;
+
+static void D6_set_HW_layer(mmio_d6_hw_layer * layer, uint32_t buffer_index)
+{
+    uint32_t old_int = cli();
+    layer->flags = 0x349;
+    layer->vram_related = buffer_index << 8;
+    layer->in_offsets = -BMP_W_MINUS | (-BMP_H_MINUS << 16);
+    layer->resolution = (BMP_W_PLUS - BMP_W_MINUS) | ((BMP_H_PLUS - BMP_H_MINUS ) << 16);
+    layer->out_offsets = 0;
+    sei(old_int);
+}
+
+typedef struct mmio_d6_register_vram{
+    // Seems to be numerical ID, 8 bits - that is used by HW layer select VRAM
+    volatile uint32_t index;
+    // Computed as (( width << 16) >> 20) - 1 | 0x20000;
+    volatile uint32_t pitch;
+    // Computed as (vram_addr >> 8). Likely to force 0x100 alignment?
+    volatile uint32_t ptr;
+} mmio_d6_register_vram;
+
+static void D6_register_VRAM(uint32_t buffer_index)
+{
+    mmio_d6_register_vram * vram_reg = (mmio_d6_register_vram*)MMIO_D6_REGISTER_VRAM;
+
+    uint32_t old_int = cli();
+    vram_reg->index = buffer_index;
+    vram_reg->pitch = (((BMP_W_PLUS - BMP_W_MINUS) << 0x10) >> 0x14) - 1 | 0x20000;
+    vram_reg->ptr = (uint32_t)bmp_vram_indexed >> 8;
+    sei(old_int);
+}
+
 static void bmp_init(void* unused)
 {
     bmp_lock = CreateRecursiveLock(NULL);
@@ -1482,37 +1597,10 @@ static void bmp_init(void* unused)
     else
         ASSERT(1);
 
-    #define VRAM_BUFFER_INDEX 0x16
-    uint32_t old_int = cli();
-
-    // 0xd20138f0 is the 8th layer
-    // d2013800 is possibly displa resolution - already set
-    // d2013810 is "base" register for hardware layers, structure of 8 32bit registers.
-
-    // First field, flags. LSB enables layer, other bits - no idea.
-    //       0x40000305 on OSD (yuv + alpha). OSD is on hardware layer 5 on 80D
-    //       0x40000341 on LV  (yuv). LV in hardware layer 0 on 80D.
-    //       0x00000349 in bootloader (Indexed RGB). I stole that directly. BL always draws to layer 0.
-    *((volatile uint32_t *)0xd20138f0) = 0x349;
-    // this seems to be the magic that enables 0x16 entry, as pushed into "layer vram MMIO" later.
-    *((volatile uint32_t *)0xd20138f4) = VRAM_BUFFER_INDEX << 8;
-    // input offsets
-    *((volatile uint32_t *)0xd20138f8) = -BMP_W_MINUS | (-BMP_H_MINUS << 16);
-    // resolution
-    *((volatile uint32_t *)0xd20138fc) = (BMP_W_PLUS - BMP_W_MINUS) | ((BMP_H_PLUS - BMP_H_MINUS ) << 16);
-    // output offsets
-    *((volatile uint32_t *)0xd2013900) = 0x0;
-
-    // This part HAS TO BE WRITTEN in 32bit writes and IN ORDER.
-    // Our layer "index". I don't know the meaning, Canon code has arrays of predefined numbers.
-    // I choosen mine by a random dice roll /s
-    *((volatile uint32_t *)0xd2030100) = VRAM_BUFFER_INDEX;
-    // Buffer pitch, calculation as is in ROM. Not sure about that 0x20000 flag but it is applied everywhere.
-    *((volatile uint32_t *)0xd2030104) = (((BMP_W_PLUS - BMP_W_MINUS) << 0x10) >> 0x14) - 1 | 0x20000;
-    // VRAM address. Hardware expects buffer address to be rsh 8.
-    // Many things (Ximr included) on d6/7 need 0x100 alignment so perhaps a wider HW requirement.
-    *((volatile uint32_t *)0xd2030108) = (uint32_t)bmp_vram_indexed >> 8;
-    sei(old_int);
+    D6_register_VRAM(D6_VRAM_BUFFER_INDEX);
+    D6_set_hw_palette();
+    D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_PANEL + D6_HW_LAYER_INDEX, D6_VRAM_BUFFER_INDEX);
+    D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_HDMI  + D6_HW_LAYER_INDEX, D6_VRAM_BUFFER_INDEX);
 #endif
     _update_vram_params();
 }
