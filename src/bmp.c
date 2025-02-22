@@ -1479,7 +1479,7 @@ static uint32_t argb_to_yuva(uint32_t rgb)
     return a | (uint8_t)V << 8 | (uint8_t)U << 16 | (uint8_t)Y << 24;
 }
 
-static void D6_set_hw_palette()
+static uint32_t *compute_yuva_lut()
 {
     // I'm not sure what is the expected size of a palette.
     // Bootloader seems to use only 16 colours, in 8 bit indexed we in theory have 256 possible.
@@ -1488,8 +1488,11 @@ static void D6_set_hw_palette()
     // Since this is read only, I alocate only size for our palette +- aligmnent.
     // Colours that would fall out of bounds may be just rendered wrong/randomly.
     //
-    // Palette has to be aligned to 0x10
+    // Palette LUT has to be aligned to 0x10
     uint32_t *palette = malloc(RGB_LUT_SIZE * sizeof(uint32_t) + 0x10);
+    if (palette == NULL)
+        ASSERT(1);
+
     palette = (uint32_t*)((((uintptr_t)palette + 0x10) >> 4) << 4);
 
     // Load and convert our indexed2rgb LUT into YUVA
@@ -1500,30 +1503,66 @@ static void D6_set_hw_palette()
         ptr++;
     }
 
+    return palette;
+}
+
+
+#define MMIO_D6_HW_LAYERS_PALETTE_HDMI   0xD2010680
+#define MMIO_D6_HW_LAYERS_PALETTE_PANEL  0xD20139A0
+
+typedef struct mmio_d6_palette{
+    // Write 1 here to apply values set via other 2 addresses
+    volatile uint32_t apply;
+    // No idea, everything writes 0xFF here before setting ptr.
+    volatile uint32_t flag;
+    // Computed as (palette_address >> 4). Likely to force 0x10 alignment?
+    volatile uint32_t ptr;
+} mmio_d6_palette;
+
+static void D6_set_hw_palette(mmio_d6_palette* output, uint32_t* palette)
+{
     // It seems we race some Canon init code. If we write palette too early,
     // it is not applied.
     msleep(1000);
 
-    // Tell hardware where to find our palette
     uint32_t old_int = cli();
-    // Unknown, firmware always writes 0xFF there
-    *((volatile uint32_t *)0xd20139a4) = 0xff;
-    // Load palete from pointer (pointer has to be rsh 4)
-    *((volatile uint32_t *)0xd20139a8) = (uint32_t)palette >> 4;
-    // Applies palette loaded above
-    *((volatile uint32_t *)0xd20139a0) = 1;
+    output->flag = 0xff;
+    output->ptr = (uint32_t)palette >> 4;
+    output->apply = 1;
     sei(old_int);
 }
 
-#define MMIO_D6_REGISTER_VRAM   0xd2030100
-#define MMIO_D6_HW_LAYERS_HDMI  0xD2010510
-#define MMIO_D6_HW_LAYERS_PANEL 0xD2013810
+
+#define MMIO_D6_REGISTER_VRAM    0xD2030100
+#define MMIO_D6_HW_LAYERS_HDMI   0xD2010510
+#define MMIO_D6_HW_LAYERS_PANEL  0xD2013810
 
 // This is randomly selected index for now.
 // Code has 3 structures of [total_layers]*x4 values for those indexes.
 #define D6_VRAM_BUFFER_INDEX 0x15
 // I use "topmost" HW layer. Canon doesn't seem to use it in code.
 #define D6_HW_LAYER_INDEX 7
+
+
+#define HWLAYER_ENABLE           0x1
+#define HWLAYER_ALWAYS_SET     0x300
+#define HWLAYER_FLIP_H        0x2000
+#define HWLAYER_FLIP_V        0x4000
+#define HWLAYER_DOUBLE_H     0x20000
+#define HWLAYER_DOUBLE_V     0x40000
+#define HWLAYER_ZEBRAS    0x10000000
+// No idea, Canon uses HWLAYER_UNK on LCD, HWLAYER_ZEBRAS on HDMI
+// Seems to have no effect at leat on indexed RGB
+#define HWLAYER_UNK       0x40000000
+
+// Going through lowest byte (except LSB which seems to be enable/disable)
+// reveals multiple combinations that work for some YUV and indexed formats.
+#define HWLAYER_TYPE_OSD     0x40
+#define HWLAYER_TYPE_LV      0x04
+#define HWLAYER_TYPE_INDEXED 0x48
+
+#define D6_PANEL_FLAGS (HWLAYER_ENABLE | HWLAYER_ALWAYS_SET | HWLAYER_TYPE_INDEXED)
+#define D6_HDMI_FLAGS  (HWLAYER_ENABLE | HWLAYER_ALWAYS_SET | HWLAYER_TYPE_INDEXED | HWLAYER_DOUBLE_H | HWLAYER_DOUBLE_V)
 
 typedef struct mmio_d6_hw_layer{
     // MSB toggles Hightlght (zebras) visibility
@@ -1549,12 +1588,12 @@ typedef struct mmio_d6_hw_layer{
     volatile uint32_t unk_0x1c;
 } mmio_d6_hw_layer;
 
-static void D6_set_HW_layer(mmio_d6_hw_layer * layer, uint32_t buffer_index)
+static void D6_set_HW_layer(mmio_d6_hw_layer * layer, uint32_t buffer_index, uint32_t flags, uint32_t off_x, uint32_t off_y)
 {
     uint32_t old_int = cli();
-    layer->flags = 0x349;
+    layer->flags = flags;
     layer->vram_related = buffer_index << 8;
-    layer->in_offsets = -BMP_W_MINUS | (-BMP_H_MINUS << 16);
+    layer->in_offsets = off_x | (off_y << 16);
     layer->resolution = (BMP_W_PLUS - BMP_W_MINUS) | ((BMP_H_PLUS - BMP_H_MINUS ) << 16);
     layer->out_offsets = 0;
     sei(old_int);
@@ -1575,7 +1614,7 @@ static void D6_register_VRAM(uint32_t buffer_index)
 
     uint32_t old_int = cli();
     vram_reg->index = buffer_index;
-    vram_reg->pitch = (((BMP_W_PLUS - BMP_W_MINUS) << 0x10) >> 0x14) - 1 | 0x20000;
+    vram_reg->pitch = ((((BMP_W_PLUS - BMP_W_MINUS) << 0x10) >> 0x14) - 1) | 0x20000;
     vram_reg->ptr = (uint32_t)bmp_vram_indexed >> 8;
     sei(old_int);
 }
@@ -1588,7 +1627,7 @@ static void bmp_init(void* unused)
 #ifdef FEATURE_VRAM_RGBA
     // Align to 0x100 per hw requirements
     bmp_vram_indexed = malloc(BMP_VRAM_SIZE + 0x100);
-    bmp_vram_indexed = UNCACHEABLE((uint8_t*)((((uintptr_t)bmp_vram_indexed + 0x100) >> 8) << 8));
+    bmp_vram_indexed = UNCACHEABLE((uint8_t*)((((uint32_t)bmp_vram_indexed + 0x100) >> 8) << 8));
     // initialise to transparent, this allows us to draw over
     // existing screen, rather than replace it, due to checks
     // in refresh_yuv_from_rgb()
@@ -1597,10 +1636,32 @@ static void bmp_init(void* unused)
     else
         ASSERT(1);
 
+    uint32_t *palette = compute_yuva_lut();
     D6_register_VRAM(D6_VRAM_BUFFER_INDEX);
-    D6_set_hw_palette();
-    D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_PANEL + D6_HW_LAYER_INDEX, D6_VRAM_BUFFER_INDEX);
-    D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_HDMI  + D6_HW_LAYER_INDEX, D6_VRAM_BUFFER_INDEX);
+    D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, palette);
+    D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, palette);
+    D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_PANEL + D6_HW_LAYER_INDEX,
+            D6_VRAM_BUFFER_INDEX, D6_PANEL_FLAGS, -BMP_W_MINUS, -BMP_H_MINUS);
+    D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_HDMI  + D6_HW_LAYER_INDEX,
+            D6_VRAM_BUFFER_INDEX, D6_HDMI_FLAGS, 0, 0);
+
+    // Note that:
+    //
+    // 80D code fights with us overwriting HDMI flags. To activate layer on HDMI
+    // one must write them to offset D6_VRAM_BUFFER_INDEX 0x43694 (for rom 1.0.3)
+    // Canon code keeps "source" of flags there.
+    //
+    // I also can't find (yet) why it actively overwrites attempts to set
+    // HWLAYER_DOUBLE_V on HDMI. Works fine on LCD; OSD layer uses that on HDMI
+    // too. So there has to be another in-ram variable I didn't find.
+    //
+    // It seems given output must be enabled and active to apply a palette.
+    // So after switch to HDMI colours are wrong until
+    // MMIO_D6_HW_LAYERS_PALETTE_HDMI->apply is written. This means code would
+    // need to detect HDMI activation and then apply the palette.
+    //
+    // After palette is applied, it persists until shutdown even if outputs
+    // are switched.
 #endif
     _update_vram_params();
 }
