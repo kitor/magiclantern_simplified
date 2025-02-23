@@ -1506,9 +1506,22 @@ static uint32_t *compute_yuva_lut()
     return palette;
 }
 
-
+#if defined(CONFIG_DIGIC_VI)
+#define MMIO_D6_HW_LAYERS_HDMI           0xD2010510
 #define MMIO_D6_HW_LAYERS_PALETTE_HDMI   0xD2010680
+#define MMIO_D6_HW_LAYERS_PANEL          0xD2013810
 #define MMIO_D6_HW_LAYERS_PALETTE_PANEL  0xD20139A0
+#define MMIO_D6_REGISTER_VRAM            0xD2030100
+#elif defined(CONFIG_DIGIC_VII)
+#define MMIO_D6_HW_LAYERS_HDMI           0xD2010510
+#define MMIO_D6_HW_LAYERS_PALETTE_HDMI   0xD2010680
+#define MMIO_D6_HW_LAYERS_PANEL          0xD2013810
+#define MMIO_D6_HW_LAYERS_PALETTE_PANEL  0xD20139A0
+#define MMIO_D6_REGISTER_VRAM            0xD2060040  // different than DIGIC 6
+#else
+#error Unsupported hardware
+#endif
+
 
 typedef struct mmio_d6_palette{
     // Write 1 here to apply values set via other 2 addresses
@@ -1533,9 +1546,7 @@ static void D6_set_hw_palette(mmio_d6_palette* output, uint32_t* palette)
 }
 
 
-#define MMIO_D6_REGISTER_VRAM    0xD2030100
-#define MMIO_D6_HW_LAYERS_HDMI   0xD2010510
-#define MMIO_D6_HW_LAYERS_PANEL  0xD2013810
+
 
 // This is randomly selected index for now.
 // Code has 3 structures of [total_layers]*x4 values for those indexes.
