@@ -55,7 +55,8 @@ void compositor_layer_clear();
  *
  * See https://www.magiclantern.fm/forum/index.php?topic=26024 for more details.
  */
-#define XIMR_FLAGS_LAYER_RGBA 0x5040100
+#define XIMR_FLAGS_LAYER_RGBA    0x5040100
+#define XIMR_FLAGS_LAYER_UYVYAA 0x11060200
 
 // This shouldn't change, but...
 #ifndef CANON_GUI_LAYER_ID

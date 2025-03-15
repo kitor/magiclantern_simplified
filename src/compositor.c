@@ -75,14 +75,15 @@ struct MARV *_compositor_create_layer(uint32_t bmp_w, uint32_t bmp_h)
     // buffer for MARV structure
     struct MARV* pNewLayer = malloc(sizeof(struct MARV));
     if(pNewLayer == NULL) return NULL;
-    
+
     // buffer for layer data, +0x100 for alignment
+    // for XIMR_FLAGS_LAYER_UYVYAA, BMP_VRAM_SIZE * 4 is too much but good enough for test.
     uint8_t* pBitmapData = malloc((BMP_VRAM_SIZE * 4) + 0x100);
     if(pBitmapData == NULL) {
         free(pNewLayer); // cleanup
         return NULL;
     }
-    
+
     // Align to 0x100 and use uncacheable region.
     // This is expected by some Zico functions.
     pBitmapData = UNCACHEABLE((uint8_t*)((((uintptr_t)pBitmapData + 0x100) >> 8) << 8));
@@ -91,7 +92,7 @@ struct MARV *_compositor_create_layer(uint32_t bmp_w, uint32_t bmp_h)
     pNewLayer->signature    = 0x5652414D;  // MARV
     pNewLayer->bitmap_data  = pBitmapData;
     pNewLayer->opacity_data = 0x0;
-    pNewLayer->flags        = XIMR_FLAGS_LAYER_RGBA; // see compositor.h
+    pNewLayer->flags        = XIMR_FLAGS_LAYER_UYVYAA; // see compositor.h
 #ifdef CONFIG_DIGIC_X
     extern uint64_t MemifWindow_GetIBusAddress(uint8_t* buf);
     pNewLayer->memif_1      = 0xFFFFFFFF;   // no idea
@@ -187,7 +188,7 @@ int compositor_layer_setup()
     int newLayerID = 0;
 
     // Find first available, non used layer slot
-    while( newLayerID < XIMR_MAX_LAYERS 
+    while( newLayerID < XIMR_MAX_LAYERS
       && XCM_GetSourceSurface(_pXCM, newLayerID) != NULL)
     {
         newLayerID++;
@@ -216,6 +217,7 @@ int compositor_layer_setup()
      * for that.
      */
 
+/*
 #ifdef CONFIG_COMPOSITOR_XCM_V1
     VMIX_Layers[newLayerID] = pNewLayer;
 #ifdef CONFIG_R
@@ -228,6 +230,7 @@ int compositor_layer_setup()
     XCM_SetSourceArea(_pXCM, newLayerID, -BMP_W_MINUS, -BMP_H_MINUS, BMP_W_PLUS + BMP_W_MINUS, BMP_H_PLUS + BMP_H_MINUS);
     XOC_SetLayerEnable(0, 0, newLayerID, 1); // seems layer is enabled by default
 #endif // CONFIG_COMPOSITOR_XCM_V2
+*/
 
     // save rgb_vram_info as last step, in case something above fails.
     rgb_vram_info   = pNewLayer;

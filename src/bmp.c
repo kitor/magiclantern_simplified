@@ -190,82 +190,37 @@ void bmp_idle_copy(int direction, int fullsize)
 // has been updated.  Should probably take a XimrContext *,
 // but this struct is not yet determined for 200D
 extern int XimrExe(void *);
+extern uint32_t mzrm_GrypDsCoreDrawImageToVramForEqualPhase
+        (struct MARV*, void *,
+            uint32_t target_x, uint32_t target_y,
+            void * buf, uint32_t bits_per_pixel, uint32_t source_w, uint32_t source_h,
+            uint32_t source_cut_x, uint32_t source_cut_y, uint32_t source_cut_w, uint32_t source_cut_h,
+            uint32_t isTransparent);
+
 extern struct semaphore *winsys_sem;
 void refresh_yuv_from_rgb(void)
 {
-    // get our indexed buffer, convert into our real rgb buffer
-    uint8_t *b = bmp_vram_indexed;
-    uint32_t *rgb_data = NULL;
-
-    if (rgb_vram_info != NULL)
-    {
-        rgb_data = (uint32_t *)rgb_vram_info->bitmap_data;
-    }
-    else
+    if (rgb_vram_info == NULL)
     {
         DryosDebugMsg(0, 15, "rgb_vram_info was NULL, can't refresh OSD");
         return;
     }
 
-#if !defined(CONFIG_INSTALLER)
-    if(zebra_should_run()){
-        // always draw our stuff, including full alpha
-        for (size_t n = 0; n < BMP_VRAM_SIZE; n++){
-            *rgb_data++ = indexed2rgb(*b);
-            b++;
-        }
-    }
-    else{
-#endif
-#if defined(CONFIG_DIGIC_X) && !defined(CONFIG_COMPOSITOR_DEDICATED_LAYER)
-        // kitor FIXME this is the loop altered to work with 2048x1080 layers.
-        // Resolution needs confirmation on R6.
-        //
-        // I think this could be used as general solution?
-        // Shall we use per-camera constants in bmp.c? Or maybe get this at runtime
-        // from Ximr / XCM?
-        uint32_t *rgb_row = rgb_data;
-        for (uint y = 0; y < BMP_H_PLUS - BMP_H_MINUS; y++ )
-        {
-            rgb_data = rgb_row;
-            for(uint x = 0; x < BMPPITCH; x++ )
-            {
-                uint32_t rgb = indexed2rgb(*b);
-                if ((rgb && 0xff000000) == 0x00000000)
-                    rgb_data++;
-                else
-                    *rgb_data++ = rgb;
-                b++;
-            }
-            rgb_row = rgb_row + BMP_LAYER_WIDTH;
-        }
-#else
-        //SJE FIXME benchmark this loop, it probably wants optimising
-        for (size_t n = 0; n < BMP_VRAM_SIZE; n++)
-        {
-            // limited alpha support, if dest pixel would be full alpha,
-            // don't copy into dest.  This is COLOR_TRANSPARENT_BLACK in
-            // the LUT
-            uint32_t rgb = indexed2rgb(*b);
-            if ((rgb && 0xff000000) == 0x00000000)
-                rgb_data++;
-            else
-                *rgb_data++ = rgb;
-            b++;
-        }
-#endif
-#if !defined(CONFIG_INSTALLER)
-    }
-#endif
+    /* There's some hard limit to what Zico can draw at once using this method.
+       I wasn't able to draw more than 960x480 at once -> 960x481 made it won't draw.
+       With 960x480 R was crashing 30% of the time I entered Canon menu, with no messages on serial.
+       After switching to two halves, it was stable. I tried very hard to crash it.
+     */
+    //take_semaphore(winsys_sem, 0);
+    //if(_rgb_vram_info && DISPLAY_IS_ON)
+    uint8_t * pVRAM = bmp_vram_indexed;
+    mzrm_GrypDsCoreDrawImageToVramForEqualPhase(rgb_vram_info, NULL, 0, 0,
+          pVRAM, 8, 960, 270, 0, 0, 960, 270, 1);
+/*    pVRAM += 960*270;
+    //if(_rgb_vram_info && DISPLAY_IS_ON)
+    mzrm_GrypDsCoreDrawImageToVramForEqualPhase(_rgb_vram_info, NULL, 0, 270,
+          pVRAM, 8, 960, 270, 0, 0, 960, 270, 1); */
 
-    // trigger Ximr to render to OSD from RGB buffer
-#ifdef CONFIG_DIGIC_VI
-    XimrExe((void *)XIMR_CONTEXT);
-#else
-    take_semaphore(winsys_sem, 0);
-    XimrExe((void *)XIMR_CONTEXT);
-    give_semaphore(winsys_sem);
-#endif
     ml_refresh_display_needed = 0;
 }
 
