@@ -31,6 +31,7 @@
 #include <stdarg.h>
 #include "propvalues.h"
 #include "zebra.h"
+#include "property.h"
 
 //~ int bmp_enabled = 1;
 
@@ -1550,12 +1551,13 @@ static void D6_set_hw_palette(mmio_d6_palette* output, uint32_t* palette)
 
 // This is randomly selected index for now.
 // Code has 3 structures of [total_layers]*x4 values for those indexes.
-#define D6_VRAM_BUFFER_INDEX 0x15
+#define D6_VRAM_BUFFER_INDEX 0x19
 // I use "topmost" HW layer. Canon doesn't seem to use it in code.
 #define D6_HW_LAYER_INDEX 7
 
 
 #define HWLAYER_ENABLE           0x1
+// At least on indexed, black (0?) becomes transparent with this not set
 #define HWLAYER_ALWAYS_SET     0x300
 #define HWLAYER_FLIP_H        0x2000
 #define HWLAYER_FLIP_V        0x4000
@@ -1574,6 +1576,8 @@ static void D6_set_hw_palette(mmio_d6_palette* output, uint32_t* palette)
 
 #define D6_PANEL_FLAGS (HWLAYER_ENABLE | HWLAYER_ALWAYS_SET | HWLAYER_TYPE_INDEXED)
 #define D6_HDMI_FLAGS  (HWLAYER_ENABLE | HWLAYER_ALWAYS_SET | HWLAYER_TYPE_INDEXED | HWLAYER_DOUBLE_H | HWLAYER_DOUBLE_V)
+
+uint32_t *d6_palette = NULL;
 
 typedef struct mmio_d6_hw_layer{
     // MSB toggles Hightlght (zebras) visibility
@@ -1630,6 +1634,27 @@ static void D6_register_VRAM(uint32_t buffer_index)
     sei(old_int);
 }
 
+void hdmi_set_layer_flags(uint index,uint mask,uint flags);
+
+PROP_HANDLER(PROP_HDMI_CHANGE_CODE)
+{
+    DryosDebugMsg(0, 15, "PROP_HDMI_CHANGE_CODE");
+    if(ext_monitor_hdmi)
+    {
+        D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, d6_palette);
+        D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_HDMI  + D6_HW_LAYER_INDEX,
+            D6_VRAM_BUFFER_INDEX, D6_HDMI_FLAGS, 0, 0);
+        hdmi_set_layer_flags(D6_HW_LAYER_INDEX, 0x0, D6_HDMI_FLAGS);
+    }
+    else
+    {
+        DryosDebugMsg(0, 15, "HDMI OFF");
+        D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, d6_palette);
+        D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_PANEL + D6_HW_LAYER_INDEX,
+              D6_VRAM_BUFFER_INDEX, D6_PANEL_FLAGS, -BMP_W_MINUS, -BMP_H_MINUS);
+    }
+}
+
 static void bmp_init(void* unused)
 {
     bmp_lock = CreateRecursiveLock(NULL);
@@ -1647,10 +1672,10 @@ static void bmp_init(void* unused)
     else
         ASSERT(1);
 
-    uint32_t *palette = compute_yuva_lut();
+    d6_palette = compute_yuva_lut();
     D6_register_VRAM(D6_VRAM_BUFFER_INDEX);
-    D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, palette);
-    D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, palette);
+    D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, d6_palette);
+    D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, d6_palette);
     D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_PANEL + D6_HW_LAYER_INDEX,
             D6_VRAM_BUFFER_INDEX, D6_PANEL_FLAGS, -BMP_W_MINUS, -BMP_H_MINUS);
     D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_HDMI  + D6_HW_LAYER_INDEX,

@@ -201,3 +201,6 @@ THUMB_FN(0xfe32f154,  PlayMovieGuideApp_handler)            // msg: "StartPlayMo
 DATA_PTR(    0xe4a0,  LiveViewApp_dialog)                   // in StartLiveViewApp()
 //DATA_PTR( 0x11b88,  LiveViewShutterApp_dialog)            // in StartLiveViewShutterApp(), not sure if needed
 //DATA_PTR(  0xf1e4,  PlayMovieGuideApp_dialog)             // in StartPlayMovieGuideApp()
+
+
+THUMB_FN(0xfe341a72, hdmi_set_layer_flags)

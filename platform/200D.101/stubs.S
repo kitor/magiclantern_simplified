@@ -500,3 +500,5 @@ THUMB_FN(0xe032a8c8, _get_fps_register_a)
 //NSTUB(0xFF3010F4,  LiveViewApp_handler_BL_JudgeBottomInfoDispTimerState)
 //NSTUB(0xFF30204C,  LiveViewApp_handler_end)
 //NSTUB(0xFFAAB654,  dialog_set_property_str)
+
+THUMB_FN(0xe054c3d4, hdmi_set_layer_flags)
