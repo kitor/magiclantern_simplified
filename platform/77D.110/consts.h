@@ -42,7 +42,7 @@
 #define GUIMODE_PLAY 2
 #define GUIMODE_MENU 3
 // skip RECORDING variant for now
-#define GUIMODE_ML_MENU (lv ? 0x53 : GUIMODE_MENU)
+#define GUIMODE_ML_MENU (lv ? 0x53 : GUIMODE_PLAY)
 //#define GUIMODE_ML_MENU (RECORDING ? 0 : lv ? 0x53 : GUIMODE_MENU)
 
 // I can't find any official data. Unofficial say 100k
