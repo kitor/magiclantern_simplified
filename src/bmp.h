@@ -47,7 +47,7 @@ inline uint8_t* bmp_vram_raw() { return bmp_vram_info[1].vram2; }
 #endif
 
 #ifdef FEATURE_VRAM_RGBA
-
+extern uint8_t *bmp_vram_indexed;
 /**
  * rgb_vram_info is used by source code elsewhere
  * _rgb_vram_info is used only by rgb_vram_preinit() to initialize pointer
@@ -80,8 +80,7 @@ uint32_t indexed2rgb(uint8_t color);
 
 #define RGB_LUT_SIZE 80
 inline uint8_t *bmp_vram_raw() {
-    struct MARV *marv = rgb_vram_info;
-    return marv ? marv->bitmap_data : NULL;
+    return bmp_vram_indexed;
 }
 
 #endif

@@ -109,7 +109,7 @@ void bmp_draw_to_idle(int value) { bmp_idle_flag = value; }
 
 #ifdef FEATURE_VRAM_RGBA
 struct MARV *rgb_vram_info = NULL;
-static uint8_t *bmp_vram_indexed = NULL;
+uint8_t *bmp_vram_indexed = NULL;
 // SJE what is an appropriate priority for this task?
 //TASK_CREATE( "redraw_task", refresh_yuv_from_rgb_task, 0, 0x1e, 0x1000 );
 #endif
@@ -121,7 +121,7 @@ uint8_t * bmp_vram(void)
 {
     #if defined(CONFIG_VXWORKS)
     set_ml_palette_if_dirty();
-    #elif defined(FEATURE_VRAM_RGBA)
+/*    #elif defined(FEATURE_VRAM_RGBA)
     // SJE FIXME I'm not using BMP_VRAM_START because
     // we're using a generic malloc'd block so we can't.
     // It's supposed to adjust where we look inside the 960x540 region to determine
@@ -137,7 +137,7 @@ uint8_t * bmp_vram(void)
     //
     // For now, assume 720x480.
     uint8_t *bmp_buf = bmp_vram_indexed + BMP_HDMI_OFFSET;
-    // bmp_vram_indexed is initialised by bmp_init()
+    // bmp_vram_indexed is initialised by bmp_init() */
     #else
     uint8_t *bmp_buf = bmp_idle_flag ? bmp_vram_idle() : bmp_vram_real();
     #endif
@@ -1598,7 +1598,7 @@ typedef struct mmio_d6_hw_layer{
     volatile uint32_t resolution;
     // Output buffer offsets. (x_off | ((y_off << 16))
     volatile uint32_t out_offsets;
-    volatile uint32_t unk_0x14;
+    volatile uint32_t scaling_flags_maybe; // set 0x1 to get H/V upscaling on HDMI.
     volatile uint32_t unk_0x18;
     volatile uint32_t unk_0x1c;
 } mmio_d6_hw_layer;
@@ -1623,6 +1623,8 @@ typedef struct mmio_d6_register_vram{
     volatile uint32_t ptr;
 } mmio_d6_register_vram;
 
+
+
 static void D6_register_VRAM(uint32_t buffer_index)
 {
     mmio_d6_register_vram * vram_reg = (mmio_d6_register_vram*)MMIO_D6_REGISTER_VRAM;
@@ -1636,15 +1638,25 @@ static void D6_register_VRAM(uint32_t buffer_index)
 
 void hdmi_set_layer_flags(uint index,uint mask,uint flags);
 
-PROP_HANDLER(PROP_HDMI_CHANGE_CODE)
+extern uint8_t hdmi_upscaling_flags[8];
+void hdmi_set_layer_vertical_scaling(uint index)
 {
-    DryosDebugMsg(0, 15, "PROP_HDMI_CHANGE_CODE");
+    hdmi_upscaling_flags[index] = 1;
+}
+
+void _update_layer_params()
+{
+    *bmp_vram_indexed = 0x1; // random write to trigger hw updates
     if(ext_monitor_hdmi)
     {
+        DryosDebugMsg(0, 15, "HDMI ON");
         D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, d6_palette);
         D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_HDMI  + D6_HW_LAYER_INDEX,
             D6_VRAM_BUFFER_INDEX, D6_HDMI_FLAGS, 0, 0);
+        redraw();
         hdmi_set_layer_flags(D6_HW_LAYER_INDEX, 0x0, D6_HDMI_FLAGS);
+        hdmi_set_layer_vertical_scaling(D6_HW_LAYER_INDEX);
+        redraw();
     }
     else
     {
@@ -1652,7 +1664,20 @@ PROP_HANDLER(PROP_HDMI_CHANGE_CODE)
         D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, d6_palette);
         D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_PANEL + D6_HW_LAYER_INDEX,
               D6_VRAM_BUFFER_INDEX, D6_PANEL_FLAGS, -BMP_W_MINUS, -BMP_H_MINUS);
+        redraw();
     }
+}
+
+PROP_HANDLER(PROP_HDMI_CHANGE_CODE)
+{
+    DryosDebugMsg(0, 15, "PROP_HDMI_CHANGE_CODE");
+    _update_layer_params();
+}
+
+PROP_HANDLER(PROP_HDMI_CHANGE)
+{
+    DryosDebugMsg(0, 15, "PROP_HDMI_CHANGE");
+    _update_layer_params();
 }
 
 static void bmp_init(void* unused)
@@ -1662,7 +1687,7 @@ static void bmp_init(void* unused)
     bvram_mirror_init();
 #ifdef FEATURE_VRAM_RGBA
     // Align to 0x100 per hw requirements
-    bmp_vram_indexed = malloc(BMP_VRAM_SIZE + 0x100);
+    bmp_vram_indexed = malloc(2*(BMP_VRAM_SIZE) + 0x100);
     bmp_vram_indexed = UNCACHEABLE((uint8_t*)((((uint32_t)bmp_vram_indexed + 0x100) >> 8) << 8));
     // initialise to transparent, this allows us to draw over
     // existing screen, rather than replace it, due to checks

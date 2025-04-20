@@ -206,6 +206,7 @@ DATA_PTR(    0xee10,  LiveViewApp_dialog)                   // in StartLiveViewA
 
 
 THUMB_FN(0xe057282a, hdmi_set_layer_flags)
+DATA_PTR(    0xc5dc, hdmi_upscaling_flags)
 
 /* MMU */
 THUMB_FN(   0x3515e, _request_RPC)
