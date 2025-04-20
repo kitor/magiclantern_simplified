@@ -54,7 +54,7 @@
 // I can't find any official data. Unofficial say 100k
 #define CANON_SHUTTER_RATING 100000
 
-#define DISPLAY_IS_ON               (*(int *)0xc9b4)     //via 200D
+#define DISPLAY_IS_ON               0x1     //via 200D
 
 #define GMT_FUNCTABLE               0xe0810090           //from gui_main_task
 #define GMT_NFUNCS                  0x7                  //size of table above
