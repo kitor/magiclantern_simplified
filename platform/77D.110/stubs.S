@@ -206,3 +206,11 @@ DATA_PTR(    0xee10,  LiveViewApp_dialog)                   // in StartLiveViewA
 
 
 THUMB_FN(0xe057282a, hdmi_set_layer_flags)
+
+/* MMU */
+THUMB_FN(   0x3515e, _request_RPC)
+THUMB_FN(   0x3517e,  clear_RPC_request)
+THUMB_FN(0xe0004a5a,  change_mmu_tables)
+ARM32_FN(0xe0039920,  memcpy_dryos)            // FROMUTIL 0x4010640c
+THUMB_FN(0xe00396a8,  dcache_clean_multicore)  // FROMUTIL 0x40103c8c
+THUMB_FN(0xdf008ef6,  task_create_ex)
