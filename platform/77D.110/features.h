@@ -1,5 +1,3 @@
-//#define CONFIG_HELLO_WORLD
-
 #define FEATURE_VRAM_RGBA
 
 // Don't Click Me menu looks to be intended as a place
@@ -58,3 +56,8 @@
 
 #undef CONFIG_ADDITIONAL_VERSION
 #undef CONFIG_AUTOBACKUP_ROM
+
+// Enable remapping ROM pages to RAM
+#define CONFIG_SGI_HANDLERS
+#define CONFIG_MMU_REMAP
+

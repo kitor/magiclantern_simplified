@@ -23,6 +23,12 @@
 /* "Malloc Information" */
 #define MALLOC_STRUCT_ADDR 0x6e6e4
 //#define MALLOC_FREE_MEMORY (MEM(MALLOC_STRUCT + 8) - MEM(MALLOC_STRUCT + 0x1C)) // "Total Size" - "Allocated Size"
+#define PTR_ALLOC_MEM_START       0xe004132c
+#define ALLOC_MEM_STOLEN          0x80000 // 512kB for ML
+#define CANON_ORIG_MMU_TABLE_ADDR 0xe0000000
+#define PTR_INIT1_TASK            0xe0040398
+#define DRYOS_SGI_HANDLERS_PTR    0x402c
+
 
 /* high confidence */
 #define DRYOS_ASSERT_HANDLER        0x4000               //from debug_asset function, hard to miss

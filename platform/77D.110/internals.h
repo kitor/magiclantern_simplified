@@ -22,3 +22,15 @@
 
 #define CONFIG_TASK_STRUCT_V2_SMP
 #define CONFIG_TASK_ATTR_STRUCT_V5
+
+// has inter-core RPC (so far this has always been dependent on SGI, 0xc)
+#define CONFIG_RPC
+
+// Cam has MMU (by itself, does nothing, see CONFIG_MMU_REMAP)
+#define CONFIG_MMU
+
+// Cam can wrap init1, allowing control of cpu1 before tasks are started
+#define CONFIG_INIT1_HIJACK
+
+// This camera loads ML into the AllocateMemory pool
+#define CONFIG_ALLOCATE_MEMORY_POOL
