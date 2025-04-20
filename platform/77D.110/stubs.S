@@ -203,3 +203,7 @@ THUMB_FN(0xe0500c2e,  PlayMovieGuideApp_handler)            // in StartPlayMovie
 DATA_PTR(    0xee10,  LiveViewApp_dialog)                   // in StartLiveViewApp()
 //DATA_PTR( 0x1ac98,  LiveViewShutterApp_dialog)            // in StartLiveViewShutterApp(), not sure if needed
 //DATA_PTR( 0x1c140,  PlayMovieGuideApp_dialog)             // in StartPlayMovieGuideApp()
+
+DATA_PTR(0x44B8, UIButtonHandler)
+DATA_PTR(0x4ca0, SubscribeSwitchFromPartner)
+THUMB_FN(0xe007014d,_switchFromPartner)

@@ -6243,6 +6243,20 @@ static struct longpress q_longpress = {
 };
 #endif
 
+#if defined(CONFIG_R)
+// This cam toggles GUI control lock with Trash button,
+// and sends a different button code depending on state of the lock.
+// There doesn't seem to be a single code for Trash,
+// so I'm using long press Q.
+static struct longpress menu_longpress = {
+    .long_btn_press     = BGMT_TRASH,   // long press (500ms) opens ML menu.
+    .short_btn_press    = BGMT_MENU,       // short press => do a regular Q
+    .short_btn_unpress  = BGMT_UNPRESS_MENU,
+    .pos_x = 680,   /* in LiveView */
+    .pos_y = 350,   /* above ExpSim */
+};
+#endif
+
 #if defined(CONFIG_EOSM)
 static struct longpress erase_longpress = {
     .long_btn_press     = BGMT_TRASH,           /* long press (500ms) opens ML menu */
@@ -6464,6 +6478,24 @@ int handle_longpress_events(struct event * event)
     else if (event->param == BGMT_UNPRESS_Q)
     {
         q_longpress.pressed = 0;
+    }
+#endif
+
+#if defined(CONFIG_R)
+    // trigger menu by a long press on MENU
+    if (event->param == BGMT_MENU)
+    {
+        if (gui_state == GUISTATE_IDLE && !gui_menu_shown() && !IS_FAKE(event))
+        {
+            menu_longpress.pressed = 1;
+            menu_longpress.count = 0;
+            delayed_call(20, longpress_check, &menu_longpress);
+            return 0;
+        }
+    }
+    else if (event->param == BGMT_UNPRESS_MENU)
+    {
+        menu_longpress.pressed = 0;
     }
 #endif
 

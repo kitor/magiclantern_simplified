@@ -14,6 +14,9 @@
 /* enable state objects hooks */
 #define CONFIG_STATE_OBJECT_HOOKS
 
+/** Execute platform prepare function in post_init_task **/
+#define CONFIG_PLATFORM_POST_INIT
+
 // SRM is untested, this define is to allowing building
 // without SRM_BUFFER_SIZE being found
 #define CONFIG_MEMORY_SRM_NOT_WORKING

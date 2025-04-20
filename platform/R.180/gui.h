@@ -13,7 +13,7 @@
 #define BGMT_PRESS_SET               0x04
 #define BGMT_UNPRESS_SET             0x05
 #define BGMT_MENU                    0x06
-
+#define BGMT_UNPRESS_MENU            0x07
 #define BGMT_INFO                    0x08
 
 #define BGMT_PLAY                    0x0C

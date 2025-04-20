@@ -10,6 +10,7 @@
 #define BGMT_PRESS_SET               0x04
 #define BGMT_UNPRESS_SET             0x05
 #define BGMT_MENU                    0x06
+#define BGMT_UNPRESS_MENU            0x444
 #define BGMT_INFO                    0x07
 //      BGMT_PRESS_DISP              0x08
 //      BGMT_UNPRESS_DISP            0x09
@@ -27,14 +28,15 @@
 #define BGMT_LV                      0x1E
 
 // 0x20
-#define BGMT_PRESS_UP                0x2A
-#define BGMT_UNPRESS_UP              0x2B
-#define BGMT_PRESS_DOWN              0x2C
-#define BGMT_UNPRESS_DOWN            0x2D
 #define BGMT_PRESS_RIGHT             0x26
 #define BGMT_UNPRESS_RIGHT           0x27
 #define BGMT_PRESS_LEFT              0x28
 #define BGMT_UNPRESS_LEFT            0x29
+#define BGMT_PRESS_UP                0x2A
+#define BGMT_UNPRESS_UP              0x2B
+#define BGMT_PRESS_DOWN              0x2C
+#define BGMT_UNPRESS_DOWN            0x2D
+
 
 #define BGMT_PRESS_HALFSHUTTER       0x47 // same as AF-ON
 

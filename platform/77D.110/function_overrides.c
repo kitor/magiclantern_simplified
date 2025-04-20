@@ -9,6 +9,29 @@
 #include <tasks.h>
 #include <edmac.h>
 
+static uint32_t bindReceiveSwitch(uint32_t hw_sw_id, uint32_t flags)
+{
+    DryosDebugMsg(0,15,"ML_bindReceiveSwitch %08x %08x", hw_sw_id, flags);
+}
+
+extern uint32_t _switchFromPartner(uint32_t a, uint32_t b, uint32_t c);
+static uint32_t ML_switchFromPartner(uint32_t a, uint32_t b, uint32_t c)
+{
+      DryosDebugMsg(0,15,"ML_switchFromPartner %08x %08x %08x", a, b, c);
+      return _switchFromPartner(a,b,c);
+}
+
+extern void * UIButtonHandler;
+extern void  * SubscribeSwitchFromPartner;
+void platform_post_init()
+{
+    DryosDebugMsg(0,15,"platform_post_init %08x %08x", UIButtonHandler, SubscribeSwitchFromPartner);
+    UIButtonHandler = (void *)&bindReceiveSwitch;
+    DryosDebugMsg(0,15,"set bindReceiveSwitch %08x", UIButtonHandler);
+    SubscribeSwitchFromPartner = &ML_switchFromPartner;
+    DryosDebugMsg(0,15,"set SubscribeSwitchFromPartner %08x", SubscribeSwitchFromPartner);
+}
+
 void LoadCalendarFromRTC(struct tm *tm)
 {
     _LoadCalendarFromRTC(tm, 0, 0, 16);
@@ -19,6 +42,9 @@ extern void gui_enqueue_message(uint32_t, uint32_t, uint32_t, uint32_t);
 void GUI_Control(int bgmt_code, int obj, int arg, int unknown){
     gui_enqueue_message(0, bgmt_code, obj, arg);
 }
+
+
+
 
 extern struct task* first_task;
 int get_task_info_by_id(int unknown_flag, int task_id, void *task_attr)
