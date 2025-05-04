@@ -1376,11 +1376,14 @@ void bmp_flip_ex(uint8_t* dst, uint8_t* src, uint8_t* mirror, int voffset)
     }
 }
 
+void _toggle_layer_visibility(uint32_t disabled);
+
 static void palette_disable(uint32_t disabled)
 {
     #if defined(CONFIG_VXWORKS) || defined(FEATURE_VRAM_RGBA)
-    return; // see set_ml_palette
-    #endif
+    _toggle_layer_visibility(disabled);
+    return;
+    #else
 
     if(disabled)
     {
@@ -1398,6 +1401,7 @@ static void palette_disable(uint32_t disabled)
             EngDrvOut(LCD_Palette[i*3+0x300], LCD_Palette[i*3 + 2]);
         }
     }
+    #endif
 }
 //~ #endif
 
@@ -1574,8 +1578,8 @@ static void D6_set_hw_palette(mmio_d6_palette* output, uint32_t* palette)
 #define HWLAYER_TYPE_LV      0x04
 #define HWLAYER_TYPE_INDEXED 0x48
 
-#define D6_PANEL_FLAGS (HWLAYER_ENABLE | HWLAYER_ALWAYS_SET | HWLAYER_TYPE_INDEXED)
-#define D6_HDMI_FLAGS  (HWLAYER_ENABLE | HWLAYER_ALWAYS_SET | HWLAYER_TYPE_INDEXED | HWLAYER_DOUBLE_H | HWLAYER_DOUBLE_V)
+#define D6_PANEL_FLAGS (HWLAYER_ALWAYS_SET | HWLAYER_TYPE_INDEXED)
+#define D6_HDMI_FLAGS  (HWLAYER_ALWAYS_SET | HWLAYER_TYPE_INDEXED | HWLAYER_DOUBLE_H | HWLAYER_DOUBLE_V)
 
 uint32_t *d6_palette = NULL;
 
@@ -1652,7 +1656,7 @@ void _update_layer_params()
         DryosDebugMsg(0, 15, "HDMI ON");
         D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, d6_palette);
         D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_HDMI  + D6_HW_LAYER_INDEX,
-            D6_VRAM_BUFFER_INDEX, D6_HDMI_FLAGS, 0, 0);
+            D6_VRAM_BUFFER_INDEX, D6_HDMI_FLAGS | HWLAYER_ENABLE, 0, 0);
         redraw();
         hdmi_set_layer_flags(D6_HW_LAYER_INDEX, 0x0, D6_HDMI_FLAGS);
         hdmi_set_layer_vertical_scaling(D6_HW_LAYER_INDEX);
@@ -1663,9 +1667,28 @@ void _update_layer_params()
         DryosDebugMsg(0, 15, "HDMI OFF");
         D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, d6_palette);
         D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_PANEL + D6_HW_LAYER_INDEX,
-              D6_VRAM_BUFFER_INDEX, D6_PANEL_FLAGS, -BMP_W_MINUS, -BMP_H_MINUS);
+              D6_VRAM_BUFFER_INDEX, D6_PANEL_FLAGS | HWLAYER_ENABLE, -BMP_W_MINUS, -BMP_H_MINUS);
         redraw();
     }
+}
+
+void _toggle_layer_visibility(uint32_t disabled)
+{
+  //for simulating palette_disable/palette_enable
+  return;
+  uint32_t mask = HWLAYER_ENABLE;
+  if(disabled){
+    mask = 0;
+  }
+  if(ext_monitor_hdmi)
+  {
+      hdmi_set_layer_flags(D6_HW_LAYER_INDEX, 0x0, D6_HDMI_FLAGS | mask);
+  }
+  else
+  {
+      D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_PANEL + D6_HW_LAYER_INDEX,
+            D6_VRAM_BUFFER_INDEX, D6_PANEL_FLAGS | mask, -BMP_W_MINUS, -BMP_H_MINUS);
+  }
 }
 
 PROP_HANDLER(PROP_HDMI_CHANGE_CODE)
@@ -1687,8 +1710,10 @@ static void bmp_init(void* unused)
     bvram_mirror_init();
 #ifdef FEATURE_VRAM_RGBA
     // Align to 0x100 per hw requirements
-    bmp_vram_indexed = malloc(2*(BMP_VRAM_SIZE) + 0x100);
-    bmp_vram_indexed = UNCACHEABLE((uint8_t*)((((uint32_t)bmp_vram_indexed + 0x100) >> 8) << 8));
+    //bmp_vram_indexed = malloc(2*(BMP_VRAM_SIZE) + 0x100);
+    //bmp_vram_indexed = UNCACHEABLE((uint8_t*)((((uint32_t)bmp_vram_indexed + 0x100) >> 8) << 8));
+    bmp_vram_indexed = UNCACHEABLE((uint8_t *)0x44635C00);
+    DryosDebugMsg(0,15, "bmp vram %08x", bmp_vram_indexed);
     // initialise to transparent, this allows us to draw over
     // existing screen, rather than replace it, due to checks
     // in refresh_yuv_from_rgb()
@@ -1701,10 +1726,7 @@ static void bmp_init(void* unused)
     D6_register_VRAM(D6_VRAM_BUFFER_INDEX);
     D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, d6_palette);
     D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, d6_palette);
-    D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_PANEL + D6_HW_LAYER_INDEX,
-            D6_VRAM_BUFFER_INDEX, D6_PANEL_FLAGS, -BMP_W_MINUS, -BMP_H_MINUS);
-    D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_HDMI  + D6_HW_LAYER_INDEX,
-            D6_VRAM_BUFFER_INDEX, D6_HDMI_FLAGS, 0, 0);
+    _update_layer_params();
 
     // Note that:
     //
