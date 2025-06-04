@@ -3903,32 +3903,6 @@ BMP_LOCK (
     }
 #endif
 
-#ifdef CONFIG_DIGIC_678X
-/**
- * kitor: On D678 apps handlers that are in our interest either doesn't show up
- * on `gui_task_list` at all, or are buried down on the list (would require
- * list search via gui_task->next to find those that do).
- *
- * However I found out that when all apps of our interest are started, dialog
- * struct pointers are saved to other memory locations, and deleted on app close.
- *
- * We don't mess with any font buffers on D6+, as well as so far any flicker
- * kill feature is not implmented, so I skipped those code paths.
- *
- * TODO: Code should probably be expanded by other apps that we want to mess
- *       with (PlayMain, ShootOlcApp, PlayMovieGuideApp?)
- */
-    extern struct dialog* LiveViewApp_dialog;
-    if(LiveViewApp_dialog)
-    {
-        dialog_redraw(LiveViewApp_dialog); // try to redraw (this has semaphores for winsys)
-    }
-    else
-    {
-        clrscr(); // out of luck, fallback
-    }
-#else
-
     //~ if (disable_redraw) 
     //~ {
         //~ clrscr(); // safest possible redraw method :)
@@ -3947,7 +3921,6 @@ BMP_LOCK (
                 /* temporarily enable front buffer to allow the redraw */
                 canon_gui_enable_front_buffer(0);
             }
-            
             dialog_redraw(dialog); // try to redraw (this has semaphores for winsys)
             
             if (front_buffer_disabled)
@@ -3966,7 +3939,6 @@ BMP_LOCK (
             clrscr(); // out of luck, fallback
         }
     }
-#endif //CONFIG_DIGIC_678X
 )
 
     // ask other stuff to redraw

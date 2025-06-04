@@ -89,23 +89,21 @@
 
     uint8_t* bmp_vram_real()
     {
-        return (uint8_t *)((uintptr_t)BMP_VRAM_START(bmp_vram_raw()) + BMP_HDMI_OFFSET);
+        return (uint8_t *)((uintptr_t)BMP_VRAM_START(bmp_vram_raw()));
     }
 
-    /** Returns a pointer to idle BMP vram */
     uint8_t* bmp_vram_idle()
     {
-    #if defined(CONFIG_1100D) || defined(CONFIG_100D) // This fixes "dirty" LCD output for 100D
-        return (uint8_t *)((((uintptr_t)bmp_vram_real() + 0x80000) ^ 0x80000) - 0x80000);
-    #else
         return (uint8_t *)((uintptr_t)bmp_vram_real() ^ 0x80000);
-    #endif
     }
 #endif
 
 static int bmp_idle_flag = 0;
 
-void bmp_draw_to_idle(int value) { bmp_idle_flag = value; }
+void bmp_draw_to_idle(int value) {
+  DryosDebugMsg(0, 15, "bmp_draw_to_idle %d", value);
+  bmp_idle_flag = value;
+}
 
 #ifdef FEATURE_VRAM_RGBA
 struct MARV *rgb_vram_info = NULL;
@@ -150,6 +148,7 @@ uint8_t * bmp_vram(void)
 // 1 = copy idle to BMP
 void bmp_idle_copy(int direction, int fullsize)
 {
+    DryosDebugMsg(0, 15, "bmp_idle_copy %d", direction);
     uint8_t* real = bmp_vram_real();
     uint8_t* idle = bmp_vram_idle();
     ASSERT(real)
@@ -1376,12 +1375,14 @@ void bmp_flip_ex(uint8_t* dst, uint8_t* src, uint8_t* mirror, int voffset)
     }
 }
 
-void _toggle_layer_visibility(uint32_t disabled);
+void _palette_disable_d6(uint32_t disabled);
 
 static void palette_disable(uint32_t disabled)
 {
-    #if defined(CONFIG_VXWORKS) || defined(FEATURE_VRAM_RGBA)
-    _toggle_layer_visibility(disabled);
+    #if defined(CONFIG_VXWORKS)
+    return;
+    #elif defined(FEATURE_VRAM_RGBA)
+    _palette_disable_d6(disabled);
     return;
     #else
 
@@ -1484,6 +1485,25 @@ static uint32_t argb_to_yuva(uint32_t rgb)
     return a | (uint8_t)V << 8 | (uint8_t)U << 16 | (uint8_t)Y << 24;
 }
 
+static uint32_t *generate_disabled_lut()
+{
+  uint32_t *palette = malloc(RGB_LUT_SIZE * sizeof(uint32_t) + 0x10);
+  if (palette == NULL)
+      ASSERT(1);
+
+  palette = (uint32_t*)((((uintptr_t)palette + 0x10) >> 4) << 4);
+
+  // Load and convert our indexed2rgb LUT into YUVA
+  uint32_t *ptr = palette;
+  for(uint32_t i = 0; i < RGB_LUT_SIZE; i++)
+  {
+      *ptr = 0x00FF0000;
+      ptr++;
+  }
+
+  return palette;
+}
+
 static uint32_t *compute_yuva_lut()
 {
     // I'm not sure what is the expected size of a palette.
@@ -1541,7 +1561,7 @@ static void D6_set_hw_palette(mmio_d6_palette* output, uint32_t* palette)
 {
     // It seems we race some Canon init code. If we write palette too early,
     // it is not applied.
-    msleep(1000);
+    // msleep(1000);
 
     uint32_t old_int = cli();
     output->flag = 0xff;
@@ -1549,9 +1569,6 @@ static void D6_set_hw_palette(mmio_d6_palette* output, uint32_t* palette)
     output->apply = 1;
     sei(old_int);
 }
-
-
-
 
 // This is randomly selected index for now.
 // Code has 3 structures of [total_layers]*x4 values for those indexes.
@@ -1582,6 +1599,7 @@ static void D6_set_hw_palette(mmio_d6_palette* output, uint32_t* palette)
 #define D6_HDMI_FLAGS  (HWLAYER_ALWAYS_SET | HWLAYER_TYPE_INDEXED | HWLAYER_DOUBLE_H | HWLAYER_DOUBLE_V)
 
 uint32_t *d6_palette = NULL;
+uint32_t *d6_palette_disabled = NULL;
 
 typedef struct mmio_d6_hw_layer{
     // MSB toggles Hightlght (zebras) visibility
@@ -1610,11 +1628,13 @@ typedef struct mmio_d6_hw_layer{
 static void D6_set_HW_layer(mmio_d6_hw_layer * layer, uint32_t buffer_index, uint32_t flags, uint32_t off_x, uint32_t off_y)
 {
     uint32_t old_int = cli();
+  
     layer->flags = flags;
     layer->vram_related = buffer_index << 8;
     layer->in_offsets = off_x | (off_y << 16);
     layer->resolution = (BMP_W_PLUS - BMP_W_MINUS) | ((BMP_H_PLUS - BMP_H_MINUS ) << 16);
     layer->out_offsets = 0;
+
     sei(old_int);
 }
 
@@ -1642,55 +1662,75 @@ static void D6_register_VRAM(uint32_t buffer_index)
 
 void hdmi_set_layer_flags(uint index,uint mask,uint flags);
 
-extern uint8_t hdmi_upscaling_flags[8];
-void hdmi_set_layer_vertical_scaling(uint index)
+struct HDMI_MARV
 {
-    hdmi_upscaling_flags[index] = 1;
+  struct MARV vram;
+  uint16_t unk1;
+  uint16_t unk2;
+  uint16_t unk3;
+  uint16_t unk4;
+  uint16_t width;
+  uint16_t height;
+  uint8_t flag1;
+  uint8_t flag2;
+  uint8_t scaling;
+  uint8_t line_doubling;
+};
+
+extern struct HDMI_MARV hdmi_layers[8];
+extern uint8_t hdmi_upscaling_flags[8];
+
+void hdmi_set_layer_params(uint index)
+{
+    //DryosDebugMsg(0, 15, "TEST");
+    //DryosDebugMsg(0, 15, "HDMI LAYER %08x %08x %08x", hdmi_layers[7].vram.signature, hdmi_layers[7].width, hdmi_layers[7].height);
+    //DryosDebugMsg(0, 15, "HDMI UPSCALING PRE %08x %08x", &hdmi_upscaling_flags[index], hdmi_upscaling_flags[index]);
+    //uint32_t old_int = cli();
+    hdmi_layers[index].scaling = 2;   // horizontal scalling
+    hdmi_layers[index].line_doubling = 1;   // vertical scalling
+    //hdmi_upscaling_flags[index] = 1;
+    //sei(old_int);
+    //DryosDebugMsg(0, 15, "HDMI UPSCALING POST %08x", hdmi_upscaling_flags[index]);
+
 }
+
+
 
 void _update_layer_params()
 {
-    *bmp_vram_indexed = 0x1; // random write to trigger hw updates
     if(ext_monitor_hdmi)
     {
-        DryosDebugMsg(0, 15, "HDMI ON");
+//        DryosDebugMsg(0, 15, "HDMI ON");
         D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, d6_palette);
         D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_HDMI  + D6_HW_LAYER_INDEX,
             D6_VRAM_BUFFER_INDEX, D6_HDMI_FLAGS | HWLAYER_ENABLE, 0, 0);
-        redraw();
         hdmi_set_layer_flags(D6_HW_LAYER_INDEX, 0x0, D6_HDMI_FLAGS);
-        hdmi_set_layer_vertical_scaling(D6_HW_LAYER_INDEX);
-        redraw();
+        hdmi_set_layer_params(D6_HW_LAYER_INDEX);
     }
     else
     {
-        DryosDebugMsg(0, 15, "HDMI OFF");
         D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, d6_palette);
         D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_PANEL + D6_HW_LAYER_INDEX,
               D6_VRAM_BUFFER_INDEX, D6_PANEL_FLAGS | HWLAYER_ENABLE, -BMP_W_MINUS, -BMP_H_MINUS);
-        redraw();
     }
 }
 
-void _toggle_layer_visibility(uint32_t disabled)
+void _palette_disable_d6(uint32_t disabled)
 {
   //for simulating palette_disable/palette_enable
-  return;
-  uint32_t mask = HWLAYER_ENABLE;
-  if(disabled){
-    mask = 0;
-  }
   if(ext_monitor_hdmi)
   {
-      hdmi_set_layer_flags(D6_HW_LAYER_INDEX, 0x0, D6_HDMI_FLAGS | mask);
+      D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, disabled ? d6_palette_disabled : d6_palette);
   }
   else
   {
-      D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_PANEL + D6_HW_LAYER_INDEX,
-            D6_VRAM_BUFFER_INDEX, D6_PANEL_FLAGS | mask, -BMP_W_MINUS, -BMP_H_MINUS);
+      DryosDebugMsg(0, 15, "palette %08x", disabled);
+      D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, disabled ? d6_palette_disabled : d6_palette);
   }
 }
 
+// prop handlers not needed, vsync callback was better
+/*
 PROP_HANDLER(PROP_HDMI_CHANGE_CODE)
 {
     DryosDebugMsg(0, 15, "PROP_HDMI_CHANGE_CODE");
@@ -1701,8 +1741,18 @@ PROP_HANDLER(PROP_HDMI_CHANGE)
 {
     DryosDebugMsg(0, 15, "PROP_HDMI_CHANGE");
     _update_layer_params();
+} */
+
+
+static void (*old_bmp_vram_callback)(int) = 0;
+static void ml_bmp_vram_callback(uint32_t arg1)
+{
+    //DryosDebugMsg(0, 15, "vsync");
+    _update_layer_params();
+    old_bmp_vram_callback(arg1);
 }
 
+extern void* bmp_vram_callback;
 static void bmp_init(void* unused)
 {
     bmp_lock = CreateRecursiveLock(NULL);
@@ -1713,7 +1763,7 @@ static void bmp_init(void* unused)
     //bmp_vram_indexed = malloc(2*(BMP_VRAM_SIZE) + 0x100);
     //bmp_vram_indexed = UNCACHEABLE((uint8_t*)((((uint32_t)bmp_vram_indexed + 0x100) >> 8) << 8));
     bmp_vram_indexed = UNCACHEABLE((uint8_t *)0x44635C00);
-    DryosDebugMsg(0,15, "bmp vram %08x", bmp_vram_indexed);
+    //DryosDebugMsg(0,15, "bmp vram %08x", bmp_vram_indexed);
     // initialise to transparent, this allows us to draw over
     // existing screen, rather than replace it, due to checks
     // in refresh_yuv_from_rgb()
@@ -1723,9 +1773,13 @@ static void bmp_init(void* unused)
         ASSERT(1);
 
     d6_palette = compute_yuva_lut();
+    d6_palette_disabled = generate_disabled_lut();
     D6_register_VRAM(D6_VRAM_BUFFER_INDEX);
     D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, d6_palette);
     D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, d6_palette);
+    old_bmp_vram_callback = (void*)bmp_vram_callback;
+    //DryosDebugMsg(0, 15, "bmp_vram_callback %08x", old_bmp_vram_callback);
+    bmp_vram_callback = ml_bmp_vram_callback;
     _update_layer_params();
 
     // Note that:

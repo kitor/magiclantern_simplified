@@ -51,10 +51,29 @@
 #define GUIMODE_ML_MENU (lv ? 0x53 : GUIMODE_PLAY)
 //#define GUIMODE_ML_MENU (RECORDING ? 0 : lv ? 0x53 : GUIMODE_MENU)
 
+
 // I can't find any official data. Unofficial say 100k
 #define CANON_SHUTTER_RATING 100000
 
-#define DISPLAY_IS_ON               0x1     //via 200D
+#define _DISPDEV_STRUCT *(unsigned int *)0x9ed0
+#define DISPLAY_STATEOBJ (*(struct state_object **)_DISPDEV_STRUCT + 0x8)    // DispDevSingleScreenState on D6 and up
+#define DISPLAY_IS_ON (DISPLAY_STATEOBJ->current_state != 0)
+/* 101AC marks start of WINSYS data structure.
+ * Struct itself is easy to confirm as a few fields later there's a harcoded
+ * pointer (exists in romcpy itself) to string "Window Instance".
+ * As for "dirty bit flag", later cameras have two flags - one prohibits
+ * redraw from dialog_redraw only, other one prohibits redraw at all - this is
+ * the one.
+ * Easy to find:
+ * refreshVrmsSurface() has a single x-ref. Open that function (I call it
+ * VMIX_CallRefreshDisplay()), check list of its xrefs (there are a few).
+ * One of functions on the list is a short function
+ * with hundreds of xrefs, other ones have just a few.
+ * This function checks some memory location being differen from 1 before
+ * calling VMIX_CallRefreshDisplay(). Memory location from `!= 1` check
+ * is the field we want here.
+ */
+#define WINSYS_BMP_DIRTY_BIT_NEG MEM(0x101ac+0x20) //0x20 or 0x24
 
 #define GMT_FUNCTABLE               0xe0810090           //from gui_main_task
 #define GMT_NFUNCS                  0x7                  //size of table above
@@ -116,7 +135,6 @@
 
 #define IMGPLAY_ZOOM_LEVEL_ADDR (0x2CBC) //wrong
 
-#define WINSYS_BMP_DIRTY_BIT_NEG MEM(0x4444+0x30) // wrong, no idea
 #define FOCUS_CONFIRMATION (*(int*)0x4444) // wrong, focusinfo looks really different 50D -> 200D
 
 #define LV_BOTTOM_BAR_DISPLAYED 0x0 // wrong, fake bool
