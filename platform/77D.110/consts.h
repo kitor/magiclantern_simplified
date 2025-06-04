@@ -73,7 +73,7 @@
  * calling VMIX_CallRefreshDisplay(). Memory location from `!= 1` check
  * is the field we want here.
  */
-#define WINSYS_BMP_DIRTY_BIT_NEG MEM(0x101ac+0x20) //0x20 or 0x24
+#define WINSYS_BMP_DIRTY_BIT_NEG MEM(0x101ac+0x24)
 
 #define GMT_FUNCTABLE               0xe0810090           //from gui_main_task
 #define GMT_NFUNCS                  0x7                  //size of table above

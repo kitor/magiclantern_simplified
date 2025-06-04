@@ -89,21 +89,22 @@
 
     uint8_t* bmp_vram_real()
     {
-        return (uint8_t *)((uintptr_t)BMP_VRAM_START(bmp_vram_raw()));
+        return (uint8_t *)((uintptr_t)BMP_VRAM_START(bmp_vram_raw()) + BMP_HDMI_OFFSET);
     }
 
     uint8_t* bmp_vram_idle()
     {
+      #if defined(CONFIG_1100D) || defined(CONFIG_100D) // This fixes "dirty" LCD output for 100D
+          return (uint8_t *)((((uintptr_t)bmp_vram_real() + 0x80000) ^ 0x80000) - 0x80000);
+      #else
         return (uint8_t *)((uintptr_t)bmp_vram_real() ^ 0x80000);
+      #endif
     }
 #endif
 
 static int bmp_idle_flag = 0;
 
-void bmp_draw_to_idle(int value) {
-  DryosDebugMsg(0, 15, "bmp_draw_to_idle %d", value);
-  bmp_idle_flag = value;
-}
+void bmp_draw_to_idle(int value) { bmp_idle_flag = value; }
 
 #ifdef FEATURE_VRAM_RGBA
 struct MARV *rgb_vram_info = NULL;
@@ -148,7 +149,6 @@ uint8_t * bmp_vram(void)
 // 1 = copy idle to BMP
 void bmp_idle_copy(int direction, int fullsize)
 {
-    DryosDebugMsg(0, 15, "bmp_idle_copy %d", direction);
     uint8_t* real = bmp_vram_real();
     uint8_t* idle = bmp_vram_idle();
     ASSERT(real)
