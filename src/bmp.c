@@ -1352,14 +1352,12 @@ void bmp_flip_ex(uint8_t* dst, uint8_t* src, uint8_t* mirror, int voffset)
 }
 
 void _D6_palette_disable(uint32_t disabled);
-
 static void palette_disable(uint32_t disabled)
 {
-    #if defined(CONFIG_VXWORKS)
-    return;
+    #if defined(CONFIG_VXWORKS) || defined(FEATURE_VRAM_RGBA)
+    return; // see set_ml_palette
     #elif defined(FEATURE_VRAM_INDEXED_LAYER)
     _D6_palette_disable(disabled);
-    return;
     #else
 
     if(disabled)
@@ -1540,6 +1538,8 @@ static void D6_set_hw_palette(mmio_d6_palette* output, uint32_t* palette)
 
 void _D6_palette_disable(uint32_t disabled)
 {
+  // I'm not sure about the palette disable thing
+  // If we do it to hide Canon stuff, this will not work in case of own layer.
   uint32_t *palette = disabled ? d6_palette_disabled : d6_palette;
   if(ext_monitor_hdmi)
       D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, palette);
@@ -1644,11 +1644,6 @@ static void D6_set_HW_layer(mmio_d6_hw_layer * layer, uint32_t buffer_index, uin
 /*
  *  Set layer settings in HDMI-specific data structures
  */
-
-// Self note for later (as this might be different structure than on 77D):
-// 80D code fights with us overwriting HDMI flags. To activate layer on HDMI
-// one must write them to offset D6_VRAM_BUFFER_INDEX 0x43694 (for rom 1.0.3)
-// Canon code keeps "source" of flags there.
 struct HDMI_MARV
 {
     struct MARV vram;
@@ -1664,15 +1659,6 @@ struct HDMI_MARV
     uint8_t line_doubling;
 };
 
-extern struct HDMI_MARV hdmi_layers[8];
-void hdmi_set_layer_params(uint index)
-{
-    // Handles the data structure used by DispVram to setup layers on HDMI out.
-    // Only those two entries were needed on 77D, will it require more on
-    // other models?
-    hdmi_layers[index].scaling = 2;         // horizontal scalling
-    hdmi_layers[index].line_doubling = 1;   // vertical scalling
-}
 
 /*
  *  Handle VRAM parameter updates via Vsync callback
@@ -1690,9 +1676,21 @@ void _update_layer_params()
             D6_VRAM_BUFFER_INDEX, D6_HDMI_FLAGS | HWLAYER_ENABLE, 0, 0);
         // HDMI needs a special treatment. For unkonwn reasons, on LCD DispVram
         // code doesn't care about other HW layers than ones used by the code.
-        // On HDMI hoever it updates some of the layers configs from a data
-        // structures that are specific to HDMI output.
-        hdmi_set_layer_params(D6_HW_LAYER_INDEX);
+        #ifdef CONFIG_DIGIC_VI
+        // 80D hdmi_set_layer_flags keeps old flags in a data structure.
+        // Additionally there's 2nd data structure just for upscaling params
+        extern void hdmi_set_layer_flags(uint index,uint mask,uint flags);
+        extern uint32_t hdmi_upscale_flags[8][2];
+        hdmi_upscale_flags[D6_HW_LAYER_INDEX][0] = 1;
+        //hdmi_upscale_flags[D6_HW_LAYER_INDEX][1] = 1;
+        hdmi_set_layer_flags(D6_HW_LAYER_INDEX, 0xFFFFFFFF, D6_HDMI_FLAGS | HWLAYER_ENABLE);
+        #else //D7
+        // 77D seems to keep a lot of layer details into a single data structure
+        // Therre are at least two other structs but seems not interesting for us
+        extern struct HDMI_MARV hdmi_layers[8];
+        hdmi_layers[D6_VRAM_BUFFER_INDEX].scaling = 2;         // horizontal scalling
+        hdmi_layers[D6_VRAM_BUFFER_INDEX].line_doubling = 1;   // vertical scalling
+        #endif
     }
     else
     {
@@ -1716,13 +1714,13 @@ static void D6_bmp_vsync_callback(uint32_t arg1)
 
 static void D6_init_indexed_bmp()
 {
-    //#ifdef D6_INDEXED_VRAM_STATIC_ADDRESS
-    bmp_vram_indexed = UNCACHEABLE((uint8_t *)0x44635C00);
-    //#else
+    #ifdef D6_INDEXED_VRAM_STATIC_ADDRESS
+    bmp_vram_indexed = UNCACHEABLE((uint8_t *)D6_INDEXED_VRAM_STATIC_ADDRESS);
+    #else
     // Align to 0x100 per hw requirements
-    //bmp_vram_indexed = malloc(2*(BMP_VRAM_SIZE) + 0x100);
-    //bmp_vram_indexed = UNCACHEABLE((uint8_t*)((((uint32_t)bmp_vram_indexed + 0x100) >> 8) << 8));
-    //#endif
+    bmp_vram_indexed = malloc(2*(BMP_VRAM_SIZE) + 0x100);
+    bmp_vram_indexed = UNCACHEABLE((uint8_t*)((((uint32_t)bmp_vram_indexed + 0x100) >> 8) << 8));
+    #endif
 
     // precompute palettes and select active one
     d6_palette = D6_compute_yuva_lut(0);

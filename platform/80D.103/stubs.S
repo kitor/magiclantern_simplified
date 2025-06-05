@@ -204,3 +204,5 @@ DATA_PTR(    0xe4a0,  LiveViewApp_dialog)                   // in StartLiveViewA
 
 
 THUMB_FN(0xfe341a72, hdmi_set_layer_flags)
+DATA_PTR(   0x435c4, hdmi_upscale_flags)
+DATA_PTR(    0xc3f0, bmp_vsync_callback)                    // via DISP_RegisterBmpVsyncCallBack
