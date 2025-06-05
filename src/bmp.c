@@ -1445,6 +1445,7 @@ void bmp_zoom(uint8_t* dst, uint8_t* src, int x0, int y0, int denx, int deny)
 void *bmp_lock = NULL;
 
 
+#ifdef FEATURE_VRAM_INDEXED_LAYER
 /*
  *  Start of DIGIC 6/7 Indexed RGB drawing block
  */
@@ -1740,6 +1741,7 @@ static void D6_init_indexed_bmp()
 /*
  *  End of D6/7 Indexed RGB VRAM handling block
  */
+#endif //FEATURE_VRAM_INDEXED_LAYER
 
 static void bmp_init(void* unused)
 {
