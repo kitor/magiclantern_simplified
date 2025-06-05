@@ -46,8 +46,11 @@ uint8_t * bmp_vram(void);
 inline uint8_t* bmp_vram_raw() { return bmp_vram_info[1].vram2; }
 #endif
 
-#ifdef FEATURE_VRAM_RGBA
+#if defined(FEATURE_VRAM_RGBA) || defined(FEATURE_VRAM_INDEXED_LAYER)
+#define DRAWING_ON_DEDICATED_BUFFER
+#define RGB_LUT_SIZE 80
 extern uint8_t *bmp_vram_indexed;
+uint32_t indexed2rgb(uint8_t color);
 /**
  * rgb_vram_info is used by source code elsewhere
  * _rgb_vram_info is used only by rgb_vram_preinit() to initialize pointer
@@ -60,7 +63,10 @@ extern struct MARV *rgb_vram_info;
  * but it breaks minimal builds that do not support compositor stuff.
  */
 extern struct MARV *_rgb_vram_info;
-inline uint8_t *rgb_vram_preinit()
+#endif
+
+#ifdef FEATURE_VRAM_RGBA
+inline uint8_t *vram_preinit()
 {
 #ifdef CONFIG_COMPOSITOR_XCM
     // Get address of MARV for layer 0 from XCM
@@ -80,9 +86,28 @@ uint32_t indexed2rgb(uint8_t color);
 
 #define RGB_LUT_SIZE 80
 inline uint8_t *bmp_vram_raw() {
-    return bmp_vram_indexed;
+    struct MARV *marv = rgb_vram_info;
+    return marv ? marv->bitmap_data : NULL;
 }
 
+#endif
+
+#ifdef FEATURE_VRAM_INDEXED_LAYER
+inline uint8_t *bmp_vram_raw() {
+    return bmp_vram_indexed;
+}
+inline uint8_t *vram_preinit()
+{
+  // This will return RGBA buffer used by WINSYS
+  // That's the best solution I think we have to achieve both:
+  // - wait until winsys initializes
+  // - have a buffer that if we corrupt before allocating ours, nothing bad
+  //   will happen (maybe some garbage on screen for a split second)
+  struct MARV *MARV = _rgb_vram_info;
+  if(MARV != NULL)
+      bmp_vram_indexed = _rgb_vram_info->bitmap_data;
+  return _rgb_vram_info ? _rgb_vram_info->bitmap_data : NULL;
+}
 #endif
 
 /**

@@ -1,4 +1,4 @@
-#define FEATURE_VRAM_RGBA
+#define FEATURE_VRAM_INDEXED_LAYER
 
 // Don't Click Me menu looks to be intended as a place
 // for devs to put custom code in debug.c run_test(),

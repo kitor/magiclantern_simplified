@@ -31,7 +31,6 @@
 #include <stdarg.h>
 #include "propvalues.h"
 #include "zebra.h"
-#include "property.h"
 
 //~ int bmp_enabled = 1;
 
@@ -78,7 +77,7 @@
             return (uint8_t*)((uintptr_t)bmp_buf - BMP_HDMI_OFFSET - 0xb28);
 
         // something else - new camera? return it unchanged (failsafe)
-        #ifdef FEATURE_VRAM_RGBA
+        #if defined(FEATURE_VRAM_RGBA) || defined(FEATURE_VRAM_INDEXED_LAYER)
         // SJE we use a malloc'd buffer and the above hack doesn't work, so,
         // don't assert.
         #else
@@ -107,11 +106,14 @@ static int bmp_idle_flag = 0;
 
 void bmp_draw_to_idle(int value) { bmp_idle_flag = value; }
 
+#if defined(FEATURE_VRAM_RGBA) || defined(FEATURE_VRAM_INDEXED_LAYER)
+uint8_t *bmp_vram_indexed = NULL;
+#endif
+
 #ifdef FEATURE_VRAM_RGBA
 struct MARV *rgb_vram_info = NULL;
-uint8_t *bmp_vram_indexed = NULL;
 // SJE what is an appropriate priority for this task?
-//TASK_CREATE( "redraw_task", refresh_yuv_from_rgb_task, 0, 0x1e, 0x1000 );
+TASK_CREATE( "redraw_task", refresh_yuv_from_rgb_task, 0, 0x1e, 0x1000 );
 #endif
 // SJE should this global live in bmp.c?
 uint32_t ml_refresh_display_needed = 0;
@@ -121,7 +123,7 @@ uint8_t * bmp_vram(void)
 {
     #if defined(CONFIG_VXWORKS)
     set_ml_palette_if_dirty();
-/*    #elif defined(FEATURE_VRAM_RGBA)
+    #elif defined(FEATURE_VRAM_RGBA)
     // SJE FIXME I'm not using BMP_VRAM_START because
     // we're using a generic malloc'd block so we can't.
     // It's supposed to adjust where we look inside the 960x540 region to determine
@@ -137,7 +139,7 @@ uint8_t * bmp_vram(void)
     //
     // For now, assume 720x480.
     uint8_t *bmp_buf = bmp_vram_indexed + BMP_HDMI_OFFSET;
-    // bmp_vram_indexed is initialised by bmp_init() */
+    // bmp_vram_indexed is initialised by bmp_init()
     #else
     uint8_t *bmp_buf = bmp_idle_flag ? bmp_vram_idle() : bmp_vram_real();
     #endif
@@ -184,6 +186,41 @@ void bmp_idle_copy(int direction, int fullsize)
 #endif
     }
 }
+
+#if defined(FEATURE_VRAM_RGBA) || defined(FEATURE_VRAM_INDEXED_LAYER)
+
+static uint32_t indexed2rgbLUT[RGB_LUT_SIZE] = {
+    0x00000000, 0xffebebeb, 0xff000000, 0x00000000, 0xffa33800, // 0
+    0xff20bbd9, 0xff009900, 0xff01ad01, 0xffea0001, 0xff0042d4, // 5
+    0xffb9bb8c, 0xff1c237e, 0xffc80000, 0xff0000a8, 0xffc9009a, // 10
+    0xffd1c000, 0xffe800e8, 0xffd95e4c, 0xff003e4b, 0xffe76d00, // 15
+    0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, // 20
+    0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, // 25
+    0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, // 30
+    0xffe800e8, 0xffe800e8, 0xffe800e8, 0xff090909, 0xff121212, // 35
+    0xff1b1b1b, 0xff242424, 0xff292929, 0xff2e2e2e, 0xff323232, // 40
+    0xff373737, 0xff3b3b3b, 0xff404040, 0xff454545, 0xff494949, // 45
+    0xff525252, 0xff5c5c5c, 0xff656565, 0xff6e6e6e, 0xff757575, // 50
+    0xff777777, 0xff7c7c7c, 0xff818181, 0xff858585, 0xff8a8a8a, // 55
+    0xff8e8e8e, 0xff939393, 0xff989898, 0xff9c9c9c, 0xffa1a1a1, // 60
+    0xffa5a5a5, 0xffaaaaaa, 0xffafafaf, 0xffb3b3b3, 0xffb8b8b8, // 65
+    0xffbcbcbc, 0xffc1c1c1, 0xffc6c6c6, 0xffcacaca, 0xffcfcfcf, // 70
+    0xffd3d3d3, 0xffd8d8d8, 0xffdddddd, 0xffe1e1e1, 0xffe6e6e6  // 75
+};
+
+uint32_t indexed2rgb(uint8_t color)
+{
+    if (color < RGB_LUT_SIZE)
+    {
+        return indexed2rgbLUT[color];
+    }
+    else
+    {
+        // return gray so it's probably visible
+        return indexed2rgbLUT[4];
+    }
+}
+#endif
 
 #ifdef FEATURE_VRAM_RGBA
 
@@ -294,67 +331,6 @@ void refresh_yuv_from_rgb_task(void *unused)
         msleep(50); // max 20 fps refresh
     }
 }
-
-static uint32_t indexed2rgbLUT[RGB_LUT_SIZE] = {
-    0x00000000, 0xffebebeb, 0xff000000, 0x00000000, 0xffa33800, // 0
-    0xff20bbd9, 0xff009900, 0xff01ad01, 0xffea0001, 0xff0042d4, // 5
-    0xffb9bb8c, 0xff1c237e, 0xffc80000, 0xff0000a8, 0xffc9009a, // 10
-    0xffd1c000, 0xffe800e8, 0xffd95e4c, 0xff003e4b, 0xffe76d00, // 15
-    0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, // 20
-    0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, // 25
-    0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, // 30
-    0xffe800e8, 0xffe800e8, 0xffe800e8, 0xff090909, 0xff121212, // 35
-    0xff1b1b1b, 0xff242424, 0xff292929, 0xff2e2e2e, 0xff323232, // 40
-    0xff373737, 0xff3b3b3b, 0xff404040, 0xff454545, 0xff494949, // 45
-    0xff525252, 0xff5c5c5c, 0xff656565, 0xff6e6e6e, 0xff757575, // 50
-    0xff777777, 0xff7c7c7c, 0xff818181, 0xff858585, 0xff8a8a8a, // 55
-    0xff8e8e8e, 0xff939393, 0xff989898, 0xff9c9c9c, 0xffa1a1a1, // 60
-    0xffa5a5a5, 0xffaaaaaa, 0xffafafaf, 0xffb3b3b3, 0xffb8b8b8, // 65
-    0xffbcbcbc, 0xffc1c1c1, 0xffc6c6c6, 0xffcacaca, 0xffcfcfcf, // 70
-    0xffd3d3d3, 0xffd8d8d8, 0xffdddddd, 0xffe1e1e1, 0xffe6e6e6  // 75
-};
-
-
-
-#if 0
-static uint32_t indexed2uyvyLUT[COLOR_ORANGE + 1] = {
-    0x00800080, // COLOR_EMPTY (black, but we will apply alpha later)
-    0xff80ff80, // COLOR_WHITE
-    0x00800080, // COLOR_BLACK
-    0x00800080, // COLOR_TRANSPARENT_BLACK (SJE not handled correctly in bmp_putpixel_fast: should be 50% alpha maybe?)
-    0x7f807f80, // unknown, default to 50% gray so it's probably visible
-    0xb200b2ab, // COLOR_CYAN
-    0x9515952b, // COLOR_GREEN1
-    0x7a457a51, // COLOR_GREEN2
-    0x4cff4c54, // COLOR_RED
-    0x8e758ebf, // COLOR_LIGHT_BLUE
-    0x7f807f80, // unknown, default to 50% gray so it's probably visible
-    0x1d6b1dff, // COLOR_BLUE
-    0x26c0266a, // COLOR_DARK_RED
-    0x7f807f80, // unknown, default to 50% gray so it's probably visible
-    0x69ea69d4, // COLOR_MAGENTA
-    0xe194e100, // COLOR_YELLOW
-    0x7f807f80, // unknown, default to 50% gray so it's probably visible
-    0x7f807f80, // unknown, default to 50% gray so it's probably visible
-    0x7f807f80, // unknown, default to 50% gray so it's probably visible
-    0x97c9972a  // COLOR_ORANGE
-};
-#endif
-
-
-uint32_t indexed2rgb(uint8_t color)
-{
-    if (color < RGB_LUT_SIZE)
-    {
-        return indexed2rgbLUT[color];
-    }
-    else
-    {
-        // return gray so it's probably visible
-        return indexed2rgbLUT[4];
-    }
-}
-
 #endif
 
 inline void bmp_putpixel_fast(uint8_t *const bvram, int x, int y, uint8_t color)
@@ -1251,7 +1227,7 @@ int bfnt_char_get_width(int c)
 {
     if (!bfnt_ok())
     {
-        #ifdef FEATURE_VRAM_RGBA
+        #if defined(FEATURE_VRAM_RGBA) || defined(FEATURE_VRAM_INDEXED_LAYER)
             /**
              * kitor: This allows drawing ML icons, which are handled as BMP
              * font chars with negative indexes. bfnt_find_char will fail when
@@ -1376,14 +1352,14 @@ void bmp_flip_ex(uint8_t* dst, uint8_t* src, uint8_t* mirror, int voffset)
     }
 }
 
-void _palette_disable_d6(uint32_t disabled);
+void _D6_palette_disable(uint32_t disabled);
 
 static void palette_disable(uint32_t disabled)
 {
     #if defined(CONFIG_VXWORKS)
     return;
-    #elif defined(FEATURE_VRAM_RGBA)
-    _palette_disable_d6(disabled);
+    #elif defined(FEATURE_VRAM_INDEXED_LAYER)
+    _D6_palette_disable(disabled);
     return;
     #else
 
@@ -1472,66 +1448,9 @@ void bmp_zoom(uint8_t* dst, uint8_t* src, int x0, int y0, int denx, int deny)
 void *bmp_lock = NULL;
 
 
-static uint32_t argb_to_yuva(uint32_t rgb)
-{
-    uint8_t b = rgb & 0xFF;
-    uint8_t g = (rgb >> 8)  & 0xFF;
-    uint8_t r = (rgb >> 16) & 0xFF;
-    uint8_t a = (rgb >> 24) & 0xFF;
-
-    double Y = r *  0.299 + g *  0.587 + b *  0.114;
-    double U = r * -0.169 + g * -0.331 + b *  0.500 + 128;
-    double V = r *  0.500 + g * -0.419 + b * -0.081 + 128;
-
-    return a | (uint8_t)V << 8 | (uint8_t)U << 16 | (uint8_t)Y << 24;
-}
-
-static uint32_t *generate_disabled_lut()
-{
-  uint32_t *palette = malloc(RGB_LUT_SIZE * sizeof(uint32_t) + 0x10);
-  if (palette == NULL)
-      ASSERT(1);
-
-  palette = (uint32_t*)((((uintptr_t)palette + 0x10) >> 4) << 4);
-
-  // Load and convert our indexed2rgb LUT into YUVA
-  uint32_t *ptr = palette;
-  for(uint32_t i = 0; i < RGB_LUT_SIZE; i++)
-  {
-      *ptr = 0x00FF0000;
-      ptr++;
-  }
-
-  return palette;
-}
-
-static uint32_t *compute_yuva_lut()
-{
-    // I'm not sure what is the expected size of a palette.
-    // Bootloader seems to use only 16 colours, in 8 bit indexed we in theory have 256 possible.
-    // For sure our eitire palete that is > 64 colours seems to work.
-    //
-    // Since this is read only, I alocate only size for our palette +- aligmnent.
-    // Colours that would fall out of bounds may be just rendered wrong/randomly.
-    //
-    // Palette LUT has to be aligned to 0x10
-    uint32_t *palette = malloc(RGB_LUT_SIZE * sizeof(uint32_t) + 0x10);
-    if (palette == NULL)
-        ASSERT(1);
-
-    palette = (uint32_t*)((((uintptr_t)palette + 0x10) >> 4) << 4);
-
-    // Load and convert our indexed2rgb LUT into YUVA
-    uint32_t *ptr = palette;
-    for(uint32_t i = 0; i < RGB_LUT_SIZE; i++)
-    {
-        *ptr = argb_to_yuva(indexed2rgbLUT[i]);
-        ptr++;
-    }
-
-    return palette;
-}
-
+/*
+ *  Start of DIGIC 6/7 Indexed RGB drawing block
+ */
 #if defined(CONFIG_DIGIC_VI)
 #define MMIO_D6_HW_LAYERS_HDMI           0xD2010510
 #define MMIO_D6_HW_LAYERS_PALETTE_HDMI   0xD2010680
@@ -1549,6 +1468,56 @@ static uint32_t *compute_yuva_lut()
 #endif
 
 
+/*
+ *  Digic 6/7 palette handling
+ */
+static uint32_t argb_to_yuva(uint32_t rgb)
+{
+    uint8_t b = rgb & 0xFF;
+    uint8_t g = (rgb >> 8)  & 0xFF;
+    uint8_t r = (rgb >> 16) & 0xFF;
+    uint8_t a = (rgb >> 24) & 0xFF;
+
+    double Y = r *  0.299 + g *  0.587 + b *  0.114;
+    double U = r * -0.169 + g * -0.331 + b *  0.500 + 128;
+    double V = r *  0.500 + g * -0.419 + b * -0.081 + 128;
+
+    return a | (uint8_t)V << 8 | (uint8_t)U << 16 | (uint8_t)Y << 24;
+}
+
+
+static uint32_t *D6_compute_yuva_lut(uint32_t disabled)
+{
+    // I'm not sure what is the expected size of a palette.
+    // Bootloader seems to use only 16 colours, in 8 bit indexed we in theory have 256 possible.
+    // For sure our eitire palete that is > 64 colours seems to work.
+    //
+    // Since this is read only, I alocate only size for our palette +- aligmnent.
+    // Colours that would fall out of bounds may be just rendered wrong/randomly.
+    //
+    // Palette LUT has to be aligned to 0x10
+    uint32_t *palette = malloc(RGB_LUT_SIZE * sizeof(uint32_t) + 0x10);
+    if (palette == NULL)
+        ASSERT(1);
+
+    palette = (uint32_t*)((((uintptr_t)palette + 0x10) >> 4) << 4);
+
+    // Load and convert our indexed2rgb LUT into YUVA
+    // For "disabled" palette just fill with transparent colour instead
+    uint32_t *ptr = palette;
+    for(uint32_t i = 0; i < RGB_LUT_SIZE; i++)
+    {
+        *ptr = disabled ? 0x00FF0000 : argb_to_yuva(indexed2rgbLUT[i]);
+        ptr++;
+    }
+
+    return palette;
+}
+
+uint32_t *d6_palette = NULL;
+uint32_t *d6_palette_disabled = NULL;
+uint32_t *d6_active_palette = NULL;
+
 typedef struct mmio_d6_palette{
     // Write 1 here to apply values set via other 2 addresses
     volatile uint32_t apply;
@@ -1560,23 +1529,60 @@ typedef struct mmio_d6_palette{
 
 static void D6_set_hw_palette(mmio_d6_palette* output, uint32_t* palette)
 {
-    // It seems we race some Canon init code. If we write palette too early,
-    // it is not applied.
-    // msleep(1000);
-
     uint32_t old_int = cli();
     output->flag = 0xff;
     output->ptr = (uint32_t)palette >> 4;
     output->apply = 1;
     sei(old_int);
+
+    // keep track of active palette
+    d6_active_palette = palette;
 }
+
+void _D6_palette_disable(uint32_t disabled)
+{
+  uint32_t *palette = disabled ? d6_palette_disabled : d6_palette;
+  if(ext_monitor_hdmi)
+      D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, palette);
+  else
+      D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, palette);
+}
+
+/*
+ *  Register / assingn VRAM ID
+ */
+typedef struct mmio_d6_register_vram{
+    // Seems to be numerical ID, 8 bits - that is used by HW layer select VRAM
+    volatile uint32_t index;
+    // Computed as (( width << 16) >> 20) - 1 | 0x20000;
+    volatile uint32_t pitch;
+    // Computed as (vram_addr >> 8). Likely to force 0x100 alignment?
+    volatile uint32_t ptr;
+} mmio_d6_register_vram;
+
+
+static void D6_register_VRAM(uint32_t buffer_index)
+{
+    // Writes MMIO that assigns a numerical index to a vram address.
+    // This numerical index is used in layer MMIO to assign VRAM to be rendered.
+    mmio_d6_register_vram * vram_reg = (mmio_d6_register_vram*)MMIO_D6_REGISTER_VRAM;
+
+    uint32_t old_int = cli();
+    vram_reg->index = buffer_index;
+    vram_reg->pitch = ((((BMP_W_PLUS - BMP_W_MINUS) << 0x10) >> 0x14) - 1) | 0x20000;
+    vram_reg->ptr = (uint32_t)bmp_vram_indexed >> 8;
+    sei(old_int);
+}
+
+/*
+ *  Set hardware layer parameters
+ */
 
 // This is randomly selected index for now.
 // Code has 3 structures of [total_layers]*x4 values for those indexes.
 #define D6_VRAM_BUFFER_INDEX 0x19
 // I use "topmost" HW layer. Canon doesn't seem to use it in code.
 #define D6_HW_LAYER_INDEX 7
-
 
 #define HWLAYER_ENABLE           0x1
 // At least on indexed, black (0?) becomes transparent with this not set
@@ -1598,9 +1604,6 @@ static void D6_set_hw_palette(mmio_d6_palette* output, uint32_t* palette)
 
 #define D6_PANEL_FLAGS (HWLAYER_ALWAYS_SET | HWLAYER_TYPE_INDEXED)
 #define D6_HDMI_FLAGS  (HWLAYER_ALWAYS_SET | HWLAYER_TYPE_INDEXED | HWLAYER_DOUBLE_H | HWLAYER_DOUBLE_V)
-
-uint32_t *d6_palette = NULL;
-uint32_t *d6_palette_disabled = NULL;
 
 typedef struct mmio_d6_hw_layer{
     // MSB toggles Hightlght (zebras) visibility
@@ -1629,7 +1632,7 @@ typedef struct mmio_d6_hw_layer{
 static void D6_set_HW_layer(mmio_d6_hw_layer * layer, uint32_t buffer_index, uint32_t flags, uint32_t off_x, uint32_t off_y)
 {
     uint32_t old_int = cli();
-  
+
     layer->flags = flags;
     layer->vram_related = buffer_index << 8;
     layer->in_offsets = off_x | (off_y << 16);
@@ -1639,132 +1642,115 @@ static void D6_set_HW_layer(mmio_d6_hw_layer * layer, uint32_t buffer_index, uin
     sei(old_int);
 }
 
-typedef struct mmio_d6_register_vram{
-    // Seems to be numerical ID, 8 bits - that is used by HW layer select VRAM
-    volatile uint32_t index;
-    // Computed as (( width << 16) >> 20) - 1 | 0x20000;
-    volatile uint32_t pitch;
-    // Computed as (vram_addr >> 8). Likely to force 0x100 alignment?
-    volatile uint32_t ptr;
-} mmio_d6_register_vram;
+/*
+ *  Set layer settings in HDMI-specific data structures
+ */
 
-
-
-static void D6_register_VRAM(uint32_t buffer_index)
-{
-    mmio_d6_register_vram * vram_reg = (mmio_d6_register_vram*)MMIO_D6_REGISTER_VRAM;
-
-    uint32_t old_int = cli();
-    vram_reg->index = buffer_index;
-    vram_reg->pitch = ((((BMP_W_PLUS - BMP_W_MINUS) << 0x10) >> 0x14) - 1) | 0x20000;
-    vram_reg->ptr = (uint32_t)bmp_vram_indexed >> 8;
-    sei(old_int);
-}
-
-void hdmi_set_layer_flags(uint index,uint mask,uint flags);
-
+// Self note for later (as this might be different structure than on 77D):
+// 80D code fights with us overwriting HDMI flags. To activate layer on HDMI
+// one must write them to offset D6_VRAM_BUFFER_INDEX 0x43694 (for rom 1.0.3)
+// Canon code keeps "source" of flags there.
 struct HDMI_MARV
 {
-  struct MARV vram;
-  uint16_t unk1;
-  uint16_t unk2;
-  uint16_t unk3;
-  uint16_t unk4;
-  uint16_t width;
-  uint16_t height;
-  uint8_t flag1;
-  uint8_t flag2;
-  uint8_t scaling;
-  uint8_t line_doubling;
+    struct MARV vram;
+    uint16_t unk1;
+    uint16_t unk2;
+    uint16_t unk3;
+    uint16_t unk4;
+    uint16_t width;
+    uint16_t height;
+    uint8_t flag1;
+    uint8_t flag2;
+    uint8_t scaling;
+    uint8_t line_doubling;
 };
 
 extern struct HDMI_MARV hdmi_layers[8];
-extern uint8_t hdmi_upscaling_flags[8];
-
 void hdmi_set_layer_params(uint index)
 {
-    //DryosDebugMsg(0, 15, "TEST");
-    //DryosDebugMsg(0, 15, "HDMI LAYER %08x %08x %08x", hdmi_layers[7].vram.signature, hdmi_layers[7].width, hdmi_layers[7].height);
-    //DryosDebugMsg(0, 15, "HDMI UPSCALING PRE %08x %08x", &hdmi_upscaling_flags[index], hdmi_upscaling_flags[index]);
-    //uint32_t old_int = cli();
-    hdmi_layers[index].scaling = 2;   // horizontal scalling
+    // Handles the data structure used by DispVram to setup layers on HDMI out.
+    // Only those two entries were needed on 77D, will it require more on
+    // other models?
+    hdmi_layers[index].scaling = 2;         // horizontal scalling
     hdmi_layers[index].line_doubling = 1;   // vertical scalling
-    //hdmi_upscaling_flags[index] = 1;
-    //sei(old_int);
-    //DryosDebugMsg(0, 15, "HDMI UPSCALING POST %08x", hdmi_upscaling_flags[index]);
-
 }
 
-
-
+/*
+ *  Handle VRAM parameter updates via Vsync callback
+ *
+ *  TODO: When in ML menu and switching displays for the first time after boot,
+ *        vsync callback won't fire and thus wrong palette will be used until
+ *        menu exit. Executing on PROP_HDMI_CHANGE[_CODE] didn't help.
+ */
 void _update_layer_params()
 {
     if(ext_monitor_hdmi)
     {
-//        DryosDebugMsg(0, 15, "HDMI ON");
-        D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, d6_palette);
-        D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_HDMI  + D6_HW_LAYER_INDEX,
+        D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, d6_active_palette);
+        D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_HDMI + D6_HW_LAYER_INDEX,
             D6_VRAM_BUFFER_INDEX, D6_HDMI_FLAGS | HWLAYER_ENABLE, 0, 0);
-        hdmi_set_layer_flags(D6_HW_LAYER_INDEX, 0x0, D6_HDMI_FLAGS);
+        // HDMI needs a special treatment. For unkonwn reasons, on LCD DispVram
+        // code doesn't care about other HW layers than ones used by the code.
+        // On HDMI hoever it updates some of the layers configs from a data
+        // structures that are specific to HDMI output.
         hdmi_set_layer_params(D6_HW_LAYER_INDEX);
     }
     else
     {
-        D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, d6_palette);
+        D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, d6_active_palette);
         D6_set_HW_layer((mmio_d6_hw_layer*)MMIO_D6_HW_LAYERS_PANEL + D6_HW_LAYER_INDEX,
               D6_VRAM_BUFFER_INDEX, D6_PANEL_FLAGS | HWLAYER_ENABLE, -BMP_W_MINUS, -BMP_H_MINUS);
     }
 }
 
-void _palette_disable_d6(uint32_t disabled)
+extern void* bmp_vsync_callback;
+static void (*old_bmp_vsync_callback)(int) = 0;
+static void D6_bmp_vsync_callback(uint32_t arg1)
 {
-  //for simulating palette_disable/palette_enable
-  if(ext_monitor_hdmi)
-  {
-      D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, disabled ? d6_palette_disabled : d6_palette);
-  }
-  else
-  {
-      DryosDebugMsg(0, 15, "palette %08x", disabled);
-      D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, disabled ? d6_palette_disabled : d6_palette);
-  }
+    // Update our layer params on each bmp vram vsync event.
+    // This makes sure params keep the expected values and are updated ASAP
+    // Canon code updates own layers config in a similar fashion.
+    _update_layer_params();
+    // Run Canon callback
+    old_bmp_vsync_callback(arg1);
 }
 
-// prop handlers not needed, vsync callback was better
+static void D6_init_indexed_bmp()
+{
+    //#ifdef D6_INDEXED_VRAM_STATIC_ADDRESS
+    bmp_vram_indexed = UNCACHEABLE((uint8_t *)0x44635C00);
+    //#else
+    // Align to 0x100 per hw requirements
+    //bmp_vram_indexed = malloc(2*(BMP_VRAM_SIZE) + 0x100);
+    //bmp_vram_indexed = UNCACHEABLE((uint8_t*)((((uint32_t)bmp_vram_indexed + 0x100) >> 8) << 8));
+    //#endif
+
+    // precompute palettes and select active one
+    d6_palette = D6_compute_yuva_lut(0);
+    d6_palette_disabled = D6_compute_yuva_lut(1);
+    d6_active_palette = d6_palette;
+
+    D6_register_VRAM(D6_VRAM_BUFFER_INDEX);
+
+    old_bmp_vsync_callback = (void*)bmp_vsync_callback;
+    bmp_vsync_callback = D6_bmp_vsync_callback;
+    if (bmp_vram_indexed != NULL)
+        memset(bmp_vram_indexed, COLOR_TRANSPARENT_BLACK, BMP_VRAM_SIZE);
+    else
+        ASSERT(1);
+}
+
 /*
-PROP_HANDLER(PROP_HDMI_CHANGE_CODE)
-{
-    DryosDebugMsg(0, 15, "PROP_HDMI_CHANGE_CODE");
-    _update_layer_params();
-}
+ *  End of D6/7 Indexed RGB VRAM handling block
+ */
 
-PROP_HANDLER(PROP_HDMI_CHANGE)
-{
-    DryosDebugMsg(0, 15, "PROP_HDMI_CHANGE");
-    _update_layer_params();
-} */
-
-
-static void (*old_bmp_vram_callback)(int) = 0;
-static void ml_bmp_vram_callback(uint32_t arg1)
-{
-    //DryosDebugMsg(0, 15, "vsync");
-    _update_layer_params();
-    old_bmp_vram_callback(arg1);
-}
-
-extern void* bmp_vram_callback;
 static void bmp_init(void* unused)
 {
     bmp_lock = CreateRecursiveLock(NULL);
     ASSERT(bmp_lock)
     bvram_mirror_init();
 #ifdef FEATURE_VRAM_RGBA
-    // Align to 0x100 per hw requirements
-    //bmp_vram_indexed = malloc(2*(BMP_VRAM_SIZE) + 0x100);
-    //bmp_vram_indexed = UNCACHEABLE((uint8_t*)((((uint32_t)bmp_vram_indexed + 0x100) >> 8) << 8));
-    bmp_vram_indexed = UNCACHEABLE((uint8_t *)0x44635C00);
-    //DryosDebugMsg(0,15, "bmp vram %08x", bmp_vram_indexed);
+    bmp_vram_indexed = malloc(BMP_VRAM_SIZE);
     // initialise to transparent, this allows us to draw over
     // existing screen, rather than replace it, due to checks
     // in refresh_yuv_from_rgb()
@@ -1772,34 +1758,9 @@ static void bmp_init(void* unused)
         memset(bmp_vram_indexed, COLOR_TRANSPARENT_BLACK, BMP_VRAM_SIZE);
     else
         ASSERT(1);
-
-    d6_palette = compute_yuva_lut();
-    d6_palette_disabled = generate_disabled_lut();
-    D6_register_VRAM(D6_VRAM_BUFFER_INDEX);
-    D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_PANEL, d6_palette);
-    D6_set_hw_palette((mmio_d6_palette*)MMIO_D6_HW_LAYERS_PALETTE_HDMI, d6_palette);
-    old_bmp_vram_callback = (void*)bmp_vram_callback;
-    //DryosDebugMsg(0, 15, "bmp_vram_callback %08x", old_bmp_vram_callback);
-    bmp_vram_callback = ml_bmp_vram_callback;
-    _update_layer_params();
-
-    // Note that:
-    //
-    // 80D code fights with us overwriting HDMI flags. To activate layer on HDMI
-    // one must write them to offset D6_VRAM_BUFFER_INDEX 0x43694 (for rom 1.0.3)
-    // Canon code keeps "source" of flags there.
-    //
-    // I also can't find (yet) why it actively overwrites attempts to set
-    // HWLAYER_DOUBLE_V on HDMI. Works fine on LCD; OSD layer uses that on HDMI
-    // too. So there has to be another in-ram variable I didn't find.
-    //
-    // It seems given output must be enabled and active to apply a palette.
-    // So after switch to HDMI colours are wrong until
-    // MMIO_D6_HW_LAYERS_PALETTE_HDMI->apply is written. This means code would
-    // need to detect HDMI activation and then apply the palette.
-    //
-    // After palette is applied, it persists until shutdown even if outputs
-    // are switched.
+#endif
+#ifdef FEATURE_VRAM_INDEXED_LAYER
+    D6_init_indexed_bmp();
 #endif
     _update_vram_params();
 }

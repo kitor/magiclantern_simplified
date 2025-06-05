@@ -204,14 +204,6 @@ DATA_PTR(    0xee10,  LiveViewApp_dialog)                   // in StartLiveViewA
 //DATA_PTR( 0x1ac98,  LiveViewShutterApp_dialog)            // in StartLiveViewShutterApp(), not sure if needed
 //DATA_PTR( 0x1c140,  PlayMovieGuideApp_dialog)             // in StartPlayMovieGuideApp()
 
-
-THUMB_FN(0xe057282a, hdmi_set_layer_flags)
-DATA_PTR(    0xc5dc, hdmi_upscaling_flags)
-DATA_PTR(   0x917fc, hdmi_layers)
-// via DISP_RegisterBmpVsyncCallBack
-DATA_PTR(    0x1026c, bmp_vram_callback)
-//DATA_PTR(    0x10280, bmp_vram_arg)
-
 /* MMU */
 THUMB_FN(   0x3515e, _request_RPC)
 THUMB_FN(   0x3517e,  clear_RPC_request)
@@ -219,3 +211,12 @@ THUMB_FN(0xe0004a5a,  change_mmu_tables)
 ARM32_FN(0xe0039920,  memcpy_dryos)            // FROMUTIL 0x4010640c
 THUMB_FN(0xe00396a8,  dcache_clean_multicore)  // FROMUTIL 0x40103c8c
 THUMB_FN(0xdf008ef6,  task_create_ex)
+
+/* Indexed RGB on Digic 6/7 */
+//THUMB_FN(0xe057282a, hdmi_set_layer_flags)                // one of xrefs to d2010510 (flags of 1st HDMI layer).
+                                                            // Does masked register write with disabled interrutps.
+DATA_PTR(   0x917fc, hdmi_layers)                           // structure of 8 0x2c entries (entry starts with MARV followed by some extra fields).
+                                                            // Referenced from multiple HDMI related structures.
+                                                            // Check call x-refs to hdmi_set_layer_flags, look for the ones that use
+                                                            // 0x3000, 0x4000 in arg2 to hdmi_set_layer_flags - they read/write from this struct.
+DATA_PTR(   0x1026c, bmp_vsync_callback)                    // via DISP_RegisterBmpVsyncCallBack

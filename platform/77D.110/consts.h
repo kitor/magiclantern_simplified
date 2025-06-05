@@ -180,3 +180,4 @@
 
 //address of XimrContext structure to redraw in FEATURE_VRAM_RGBA
 #define XIMR_CONTEXT 0xa0fa4
+#define D6_INDEXED_VRAM_STATIC_ADDRESS 0x44635C00

@@ -5702,7 +5702,7 @@ static void menu_close()
     close_canon_menu();
     canon_gui_enable_front_buffer(0);
 
-    #ifdef FEATURE_VRAM_RGBA
+    #ifdef DRAWING_ON_DEDICATED_BUFFER
     // we need to blank the indexed RGB buffer with transparent black,
     // to remove ML menus.  Otherwise, floating elements that we want
     // to display over Canon GUI will trigger redraw, and we'll display

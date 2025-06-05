@@ -693,15 +693,15 @@ void boot_post_init_task(void)
     task_create_ex(NULL, 0x10, 0x200, cpu1_ready, NULL, 1);
 #endif
 
-  /*  #ifdef FEATURE_VRAM_RGBA
-    while (!rgb_vram_preinit())
+    #if defined(FEATURE_VRAM_RGBA) || defined(FEATURE_VRAM_INDEXED_LAYER)
+    while (!vram_preinit())
         msleep(100);
     #endif
 
     // wait for firmware to initialize
     while (!bmp_vram_raw())
-        msleep(100); */
-    
+        msleep(100);
+
     // wait for overriden gui_main_task (but use a timeout so it doesn't break if you disable that for debugging)
     for (int i = 0; i < 50; i++)
     {
