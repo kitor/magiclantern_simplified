@@ -92,13 +92,14 @@
         return (uint8_t *)((uintptr_t)BMP_VRAM_START(bmp_vram_raw()) + BMP_HDMI_OFFSET);
     }
 
+    /** Returns a pointer to idle BMP vram */
     uint8_t* bmp_vram_idle()
     {
-      #if defined(CONFIG_1100D) || defined(CONFIG_100D) // This fixes "dirty" LCD output for 100D
-          return (uint8_t *)((((uintptr_t)bmp_vram_real() + 0x80000) ^ 0x80000) - 0x80000);
-      #else
+    #if defined(CONFIG_1100D) || defined(CONFIG_100D) // This fixes "dirty" LCD output for 100D
+        return (uint8_t *)((((uintptr_t)bmp_vram_real() + 0x80000) ^ 0x80000) - 0x80000);
+    #else
         return (uint8_t *)((uintptr_t)bmp_vram_real() ^ 0x80000);
-      #endif
+    #endif
     }
 #endif
 
