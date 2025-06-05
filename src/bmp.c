@@ -231,7 +231,6 @@ extern int XimrExe(void *);
 extern struct semaphore *winsys_sem;
 void refresh_yuv_from_rgb(void)
 {
-    return;
     // get our indexed buffer, convert into our real rgb buffer
     uint8_t *b = bmp_vram_indexed;
     uint32_t *rgb_data = NULL;
