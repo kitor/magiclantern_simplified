@@ -4436,10 +4436,14 @@ static struct menu_entry expo_menus[] = {
         .edit_mode = EM_SHOW_LIVEVIEW,
         .icon_type = IT_DICE,
         .choices = (const char *[]) {
-                #if NUM_PICSTYLES == 10 // 600D, 5D3...
+                #if NUM_PICSTYLES > 9 // 600D, 5D3...
                 "Auto",
                 #endif
-                "Standard", "Portrait", "Landscape", "Neutral", "Faithful", "Monochrome", "UserDef1", "UserDef2", "UserDef3" },
+                "Standard", "Portrait", "Landscape",
+                #if NUM_PICSTYLES == 11 // D8, maybe earlier?
+                "FineDetail",
+                #endif
+                "Neutral", "Faithful", "Monochrome", "UserDef1", "UserDef2", "UserDef3" },
         .min = 1,
         .max = NUM_PICSTYLES,
         .submenu_width = 550,
@@ -4453,10 +4457,14 @@ static struct menu_entry expo_menus[] = {
                 .min = 1,
                 .max = NUM_PICSTYLES,
                 .choices = (const char *[]) {
-                        #if NUM_PICSTYLES == 10 // 600D, 5D3...
+                        #if NUM_PICSTYLES > 9 // 600D, 5D3...
                         "Auto",
                         #endif
-                        "Standard", "Portrait", "Landscape", "Neutral", "Faithful", "Monochrome", "UserDef1", "UserDef2", "UserDef3" },
+                        "Standard", "Portrait", "Landscape",
+                        #if NUM_PICSTYLES == 11 // D8, maybe earlier?
+                        "FineDetail",
+                        #endif
+                        "Neutral", "Faithful", "Monochrome", "UserDef1", "UserDef2", "UserDef3" },
                 .update     = picstyle_display_submenu,
                 .select     = picstyle_toggle,
                 .help = "Change current picture style.",

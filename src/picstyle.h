@@ -27,6 +27,7 @@ int lens_get_from_other_picstyle_color_tone(int index);
     #error this should no longer be in consts.h
 #endif
 
+// TODO: Fix this thing, new cams have 11 picstyles
 #if defined(NUM_PICSTYLES)
 #if NUM_PICSTYLES == 9      /* old cameras */
     #define PROP_PICSTYLE_SETTINGS(i) (PROP_PICSTYLE_SETTINGS_STANDARD - 1 + i)

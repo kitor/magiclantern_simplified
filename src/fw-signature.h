@@ -42,6 +42,7 @@
 #define SIG_EOSM_202 0x2D7c6dcf // from FF0C0000
 //#define SIG_M50_102  0x3b70901c // from E0040000
 #define SIG_M50_110  0x05EDBC80 // from E0040000
+#define SIG_M6II_111 0x3438de7d // from E0040000
 #define SIG_R_180    0x1474d0f5 // from E0040000
 #define SIG_R5_152   0xf10e9902 // from E0100000
 #define SIG_R6_150   0x129372a8 // from E0100000

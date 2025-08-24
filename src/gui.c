@@ -74,7 +74,7 @@ static int handle_buttons(struct event * event)
     if (!ml_started) return 1;
 
 // SJE Want to log button presses?  Uncomment the following line
-//    DryosDebugMsg(0,15,"event: %08x", event->param);
+    DryosDebugMsg(0,15,"event: %08x", event->param);
     if (handle_common_events_by_feature(event) == 0) return 0;
 
     return 1;
@@ -118,7 +118,7 @@ void ml_gui_main_task()
         #if defined(CONFIG_550D) || defined(CONFIG_7D)
         msg_queue_receive(gui_main_struct.msg_queue_550d, &event, 0);
         gui_main_struct.counter_550d--;
-        #elif defined(CONFIG_R) || defined(CONFIG_RP) || defined(CONFIG_850D) || defined (CONFIG_R5) || defined(CONFIG_SX70)
+        #elif defined(CONFIG_R) || defined(CONFIG_RP) || defined(CONFIG_850D) || defined (CONFIG_R5) || defined(CONFIG_SX70) || defined(CONFIG_M6II)
         msg_queue_receive(gui_main_struct.msg_queue_eosr, &event, 0);
         gui_main_struct.counter_550d--;
         #elif defined(CONFIG_M50) || defined(CONFIG_SX740)
