@@ -30,6 +30,10 @@
 // enable for testing gui structure changes
 #define CONFIG_RESTORE_AFTER_FORMAT
 
+// Enable remapping ROM pages to RAM
+#define CONFIG_SGI_HANDLERS
+#define CONFIG_MMU_REMAP
+
 // We can't yet rely on image capture.  Cam crashes due to null pointer,
 // I think?  If it fails to AF lock, for example.
 #define CONFIG_IMAGE_CAPTURE_NOT_WORKING

@@ -112,7 +112,16 @@ THUMB_FN(0xE00CDEF4,  sysmem_info)                          /* System Memory Inf
 THUMB_FN(0xE054D31C,  uart_printf)
 THUMB_FN(0xE006463C,  vsnprintf)                            /* called by LogFile_printf(..., "*Data Lost*\n", ...); the one called by DebugMsg only knows %s */
 
-/** New stubs **/
+/* MMU */
+THUMB_FN(0xe0554466,  change_mmu_tables)
+THUMB_FN(0xe0060ae0,  dcache_clean_multicore)
+THUMB_FN(0xe01a0f58,  memcpy_dryos)
+THUMB_FN(0xe051751e,  task_create_ex)
+THUMB_FN(0xe00f577c,  send_software_interrupt)
+
+/* RPC */
+THUMB_FN(0xdf002baa, _request_RPC)
+THUMB_FN(0xdf002bca,  clear_RPC_request)
 
 /** Startup **/
 DATA_PTR(    0xE079,  additional_version)

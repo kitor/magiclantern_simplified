@@ -5,6 +5,15 @@
 /** This camera has a DIGIC VIII chip */
 #define CONFIG_DIGIC_VIII
 
+// has inter-core RPC (so far this has always been dependent on SGI, 0xc)
+#define CONFIG_RPC
+
+// Cam has MMU (by itself, does nothing, see CONFIG_MMU_REMAP)
+#define CONFIG_MMU
+
+// Cam can wrap init1, allowing control of cpu1 before tasks are started
+#define CONFIG_INIT1_HIJACK
+
 /** Digic 8 does not have bitmap font in ROM, try to load it from card **/
 #define CONFIG_NO_BFNT
 
