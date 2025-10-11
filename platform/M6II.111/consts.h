@@ -165,8 +165,7 @@ EC811[1]>VramState
 #define Q_BTN_NAME                  "Q/SET"
 
 
-  #define NUM_PICSTYLES 10        // TODO: This has to be fixed in picstyle.h and shoot.c
-// #define NUM_PICSTYLES 11     // New style: "FineDetail"
+#define NUM_PICSTYLES 11
 
 #define MIN_MSLEEP 11
 // TODO: What is GUISTATE?
@@ -249,4 +248,3 @@ EC811[1]>VramState
 #define MVR_FRAME_NUMBER (*(int*)(220 + MVR_190_STRUCT))
 //#define MVR_LAST_FRAME_SIZE (*(int*)(512 + MVR_752_STRUCT))
 #define MVR_BYTES_WRITTEN MEM((212 + MVR_190_STRUCT))
-    

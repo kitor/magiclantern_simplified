@@ -1,12 +1,53 @@
 #ifndef _picstyle_h_
 #define _picstyle_h_
 
-int get_prop_picstyle_from_index(int index);
-int get_prop_picstyle_index(int pic_style);
+typedef enum{
+    // This is "in menu" order which is different than property order
+    #if NUM_PICSTYLES > 9
+    PICSTYLE_AUTO,
+    #endif
+    PICSTYLE_STD,
+    PICSTYLE_PORTRAIT,
+    PICSTYLE_LANDSCAPE,
+    #if NUM_PICSTYLES > 10
+    //  With Digic 8 there's "Fine Detail" picture style added
+    PICSTYLE_FINEDETAIL,
+    #endif
+    PICSTYLE_NEUTRAL,
+    PICSTYLE_FAITHFUL,
+    PICSTYLE_MONO,
+    PICSTYLE_USER1,
+    PICSTYLE_USER2,
+    PICSTYLE_USER3
+} picstyle_type;
+
+typedef enum{
+    PICSTYLE_STD_INDEX        = 0x81,
+    PICSTYLE_PORTRAIT_INDEX   = 0x82,
+    PICSTYLE_LANDSCAPE_INDEX  = 0x83,
+    PICSTYLE_NEUTRAL_INDEX    = 0x84,
+    PICSTYLE_FAITHFUL_INDEX   = 0x85,
+    PICSTYLE_MONO_INDEX       = 0x86,
+    PICSTYLE_USER1_INDEX      = 0x21,
+    PICSTYLE_USER2_INDEX      = 0x22,
+    PICSTYLE_USER3_INDEX      = 0x23,
+    #if NUM_PICSTYLES > 9
+    PICSTYLE_AUTO_INDEX       = 0x87,
+    #endif
+    #if NUM_PICSTYLES > 10
+    PICSTYLE_FINEDETAIL_INDEX = 0x88
+    #endif
+} picstyle_index;
+
+// TODO: Can we somehow move choices from shoot.c FEATURE_PICSTYLE
+// to here?
+
+picstyle_index get_prop_picstyle_from_index(picstyle_type index);
+picstyle_type  get_prop_picstyle_index(picstyle_index pic_style);
 
 /* todo: move them to picstyle.c */
-const char * get_picstyle_name(int raw_picstyle);
-const char * get_picstyle_shortname(int raw_picstyle);
+const char * get_picstyle_name(picstyle_index pic_style);
+const char * get_picstyle_shortname(picstyle_index pic_style);
 
 int lens_get_sharpness(void);
 int lens_get_contrast(void);
@@ -23,17 +64,6 @@ int lens_get_from_other_picstyle_contrast(int index);
 int lens_get_from_other_picstyle_saturation(int index);
 int lens_get_from_other_picstyle_color_tone(int index);
 
-#ifdef PROP_PICSTYLE_SETTINGS
-    #error this should no longer be in consts.h
-#endif
-
-// TODO: Fix this thing, new cams have 11 picstyles
-#if defined(NUM_PICSTYLES)
-#if NUM_PICSTYLES == 9      /* old cameras */
-    #define PROP_PICSTYLE_SETTINGS(i) (PROP_PICSTYLE_SETTINGS_STANDARD - 1 + i)
-#elif NUM_PICSTYLES == 10   /* new cameras also have the "Auto" picture style */
-    #define PROP_PICSTYLE_SETTINGS(i) ((i) == 1 ? PROP_PICSTYLE_SETTINGS_AUTO : PROP_PICSTYLE_SETTINGS_STANDARD - 2 + i)
-#endif
-#endif // NUM_PICSTYLES
+#define PROP_PICSTYLE_SETTINGS(i) (PROP_PICSTYLE_SETTINGS_STANDARD - 1 + i)
 
 #endif

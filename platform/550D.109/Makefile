@@ -19,8 +19,6 @@ PLATFORM_ARCH = armv5te
 RESTARTSTART = 0xC70100
 ML_BOOT_OBJ = boot-d45-am.o
 
-ML_PICSTYLE_AUTO = n
-
 CONFIG_LVAPP_HACK_RELOC = y
 
 include ../Makefile

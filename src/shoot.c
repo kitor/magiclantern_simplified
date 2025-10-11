@@ -2203,86 +2203,6 @@ static MENU_UPDATE_FUNC(color_tone_display)
 static CONFIG_INT("picstyle.rec", picstyle_rec, 0);
 static int picstyle_before_rec = 0; // if you use a custom picstyle during REC, the old one will be saved here
 
-static char user_picstyle_name_1[50] = "";
-static char user_picstyle_name_2[50] = "";
-static char user_picstyle_name_3[50] = "";
-static char user_picstyle_shortname_1[10] = "";
-static char user_picstyle_shortname_2[10] = "";
-static char user_picstyle_shortname_3[10] = "";
-
-static void copy_picstyle_name(char* fullname, char* shortname, char* name)
-{
-    snprintf(fullname, 50, "%s", name);
-    // CineStyle => CineS
-    // Flaat_10p => Fl10p
-    // Flaat_2   => Flaa2
-    // Flaat03   => Fla03
-    
-    int L = strlen(name);
-    shortname[0] = name[0];
-    shortname[1] = name[1];
-    shortname[2] = name[2];
-    shortname[3] = name[3];
-    shortname[4] = name[4];
-    shortname[5] = '\0';
-    
-    if (isdigit(name[L-3]))
-        shortname[2] = name[L-3];
-    if (isdigit(name[L-3]) || isdigit(name[L-2]))
-        shortname[3] = name[L-2];
-    if (isdigit(name[L-3]) || isdigit(name[L-2]) || isdigit(name[L-1]))
-        shortname[4] = name[L-1];
-}
-
-PROP_HANDLER(PROP_PC_FLAVOR1_PARAM)
-{
-    copy_picstyle_name(user_picstyle_name_1, user_picstyle_shortname_1, (char*) buf + 4);
-}
-PROP_HANDLER(PROP_PC_FLAVOR2_PARAM)
-{
-    copy_picstyle_name(user_picstyle_name_2, user_picstyle_shortname_2, (char*) buf + 4);
-}
-PROP_HANDLER(PROP_PC_FLAVOR3_PARAM)
-{
-    copy_picstyle_name(user_picstyle_name_3, user_picstyle_shortname_3, (char*) buf + 4);
-}
-
-static PROP_INT(PROP_PICSTYLE_OF_USERDEF1, picstyle_of_user1);
-static PROP_INT(PROP_PICSTYLE_OF_USERDEF2, picstyle_of_user2);
-static PROP_INT(PROP_PICSTYLE_OF_USERDEF3, picstyle_of_user3);
-
-
-const char* get_picstyle_name(int raw_picstyle)
-{
-    return
-        raw_picstyle == 0x81 ? "Standard" : 
-        raw_picstyle == 0x82 ? "Portrait" :
-        raw_picstyle == 0x83 ? "Landscape" :
-        raw_picstyle == 0x84 ? "Neutral" :
-        raw_picstyle == 0x85 ? "Faithful" :
-        raw_picstyle == 0x86 ? "Monochrome" :
-        raw_picstyle == 0x87 ? "Auto" :
-        raw_picstyle == 0x21 ? (picstyle_of_user1 < 0x80 ? user_picstyle_name_1 : "UserDef1") :
-        raw_picstyle == 0x22 ? (picstyle_of_user2 < 0x80 ? user_picstyle_name_2 : "UserDef2") :
-        raw_picstyle == 0x23 ? (picstyle_of_user3 < 0x80 ? user_picstyle_name_3 : "UserDef3") : 
-                                "Unknown";
-}
-
-const char* get_picstyle_shortname(int raw_picstyle)
-{
-    return
-        raw_picstyle == 0x81 ? "Std." : 
-        raw_picstyle == 0x82 ? "Port." :
-        raw_picstyle == 0x83 ? "Land." :
-        raw_picstyle == 0x84 ? "Neut." :
-        raw_picstyle == 0x85 ? "Fait." :
-        raw_picstyle == 0x86 ? "Mono." :
-        raw_picstyle == 0x87 ? "Auto" :
-        raw_picstyle == 0x21 ? (picstyle_of_user1 < 0x80 ? user_picstyle_shortname_1 : "User1") :
-        raw_picstyle == 0x22 ? (picstyle_of_user2 < 0x80 ? user_picstyle_shortname_2 : "User2") :
-        raw_picstyle == 0x23 ? (picstyle_of_user3 < 0x80 ? user_picstyle_shortname_3 : "User3") : 
-                            "Unk.";
-}
 static MENU_UPDATE_FUNC(picstyle_display)
 {
     int i = picstyle_rec && RECORDING ? picstyle_before_rec : (int)lens_info.picstyle;
@@ -4440,7 +4360,7 @@ static struct menu_entry expo_menus[] = {
                 "Auto",
                 #endif
                 "Standard", "Portrait", "Landscape",
-                #if NUM_PICSTYLES == 11 // D8, maybe earlier?
+                #if NUM_PICSTYLES == 11 // D8 and up
                 "FineDetail",
                 #endif
                 "Neutral", "Faithful", "Monochrome", "UserDef1", "UserDef2", "UserDef3" },
@@ -4461,7 +4381,7 @@ static struct menu_entry expo_menus[] = {
                         "Auto",
                         #endif
                         "Standard", "Portrait", "Landscape",
-                        #if NUM_PICSTYLES == 11 // D8, maybe earlier?
+                        #if NUM_PICSTYLES == 11 // D8 and up
                         "FineDetail",
                         #endif
                         "Neutral", "Faithful", "Monochrome", "UserDef1", "UserDef2", "UserDef3" },
@@ -4513,8 +4433,11 @@ static struct menu_entry expo_menus[] = {
                 #if NUM_PICSTYLES == 10 // 600D, 5D3...
                 "Auto",
                 #endif
-                "Standard", "Portrait", "Landscape", "Neutral", "Faithful", "Monochrome", "UserDef1", "UserDef2", "UserDef3" },
-                
+                "Standard", "Portrait", "Landscape",
+                #if NUM_PICSTYLES == 11 // D8 and up
+                "FineDetail",
+                #endif
+                "Neutral", "Faithful", "Monochrome", "UserDef1", "UserDef2", "UserDef3" },
                 .help = "You can use a different picture style when recording.",
                 .depends_on = DEP_MOVIE_MODE,
             },
