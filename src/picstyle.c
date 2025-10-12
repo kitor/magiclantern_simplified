@@ -43,7 +43,7 @@ picstyle_menu_index get_prop_picstyle_index(picstyle_id pic_style)
         case PICSTYLE_MONO_ID:       return PICSTYLE_MONO;
         case PICSTYLE_USER1_ID:      return PICSTYLE_USER1;
         case PICSTYLE_USER2_ID:      return PICSTYLE_USER2;
-        case PICSTYLE_USER3_ID:      return PICSTYLE_USER2;
+        case PICSTYLE_USER3_ID:      return PICSTYLE_USER3;
         #if NUM_PICSTYLES > 9
         case PICSTYLE_AUTO_ID:       return PICSTYLE_AUTO;
         #endif
@@ -186,12 +186,9 @@ PROP_HANDLER(PROP_PC_FLAVOR3_PARAM)
     copy_picstyle_name(user_picstyle_name_3, user_picstyle_shortname_3, (char*) buf + 4);
 }
 
-static uint32_t picstyle_of_user1;
-static uint32_t picstyle_of_user2;
-static uint32_t picstyle_of_user3;
-//static PROP_INT(PROP_PICSTYLE_OF_USERDEF1, picstyle_of_user1);
-//static PROP_INT(PROP_PICSTYLE_OF_USERDEF2, picstyle_of_user2);
-//static PROP_INT(PROP_PICSTYLE_OF_USERDEF3, picstyle_of_user3);
+static PROP_INT(PROP_PICSTYLE_OF_USERDEF1, picstyle_of_user1);
+static PROP_INT(PROP_PICSTYLE_OF_USERDEF2, picstyle_of_user2);
+static PROP_INT(PROP_PICSTYLE_OF_USERDEF3, picstyle_of_user3);
 
 const char* get_picstyle_name(picstyle_id pic_style)
 {
