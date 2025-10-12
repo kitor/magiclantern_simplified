@@ -4498,6 +4498,7 @@ void menu_entry_select(
             }
             else if (entry->edit_mode & EM_SHOW_LIVEVIEW)
             {
+                
                 if (lv) menu_lv_transparent_mode = !menu_lv_transparent_mode;
                 else edit_mode = !edit_mode;
             }
@@ -4766,7 +4767,10 @@ menu_redraw_do()
         if (menu_lv_transparent_mode)
         {
             bmp_fill( 0, 0, 0, 720, 480 );
-            
+            #ifdef FEATURE_VRAM_RGBA
+            clrscr();
+            #endif
+
             /*
             if (z)
             {
