@@ -2301,64 +2301,6 @@ lens_init( void* unused )
 INIT_FUNC( "lens", lens_init );
 
 
-// picture style, contrast...
-// -------------------------------------------
-
-PROP_HANDLER(PROP_PICTURE_STYLE)
-{
-    const uint32_t raw = *(uint32_t *) buf;
-    lens_info.raw_picstyle = raw;
-    lens_info.picstyle = get_prop_picstyle_index(raw);
-}
-
-extern struct prop_picstyle_settings picstyle_settings[];
-
-// get contrast/saturation/etc from the current picture style
-
-#define LENS_GET_FROM_PICSTYLE(param) \
-int \
-lens_get_##param() \
-{ \
-    int i = lens_info.picstyle; \
-    if (!i) return -10; \
-    return picstyle_settings[i].param; \
-} \
-
-#define LENS_GET_FROM_OTHER_PICSTYLE(param) \
-int \
-lens_get_from_other_picstyle_##param(int picstyle_index) \
-{ \
-    return picstyle_settings[picstyle_index].param; \
-} \
-
-// set contrast/saturation/etc in the current picture style (change is permanent!)
-#define LENS_SET_IN_PICSTYLE(param,lo,hi) \
-void \
-lens_set_##param(int value) \
-{ \
-    if (value < lo || value > hi) return; \
-    int i = lens_info.picstyle; \
-    if (!i) return; \
-    picstyle_settings[i].param = value; \
-    prop_request_change(PROP_PICSTYLE_SETTINGS(i), &picstyle_settings[i], 24); \
-} \
-
-LENS_GET_FROM_PICSTYLE(contrast)
-LENS_GET_FROM_PICSTYLE(sharpness)
-LENS_GET_FROM_PICSTYLE(saturation)
-LENS_GET_FROM_PICSTYLE(color_tone)
-
-LENS_GET_FROM_OTHER_PICSTYLE(contrast)
-LENS_GET_FROM_OTHER_PICSTYLE(sharpness)
-LENS_GET_FROM_OTHER_PICSTYLE(saturation)
-LENS_GET_FROM_OTHER_PICSTYLE(color_tone)
-
-LENS_SET_IN_PICSTYLE(contrast, -4, 4)
-LENS_SET_IN_PICSTYLE(sharpness, -1, 7)
-LENS_SET_IN_PICSTYLE(saturation, -4, 4)
-LENS_SET_IN_PICSTYLE(color_tone, -4, 4)
-
-
 // half shutter
 void SW1(int v, int wait)
 {

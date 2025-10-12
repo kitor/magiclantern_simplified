@@ -5,52 +5,78 @@
 #include <config.h>
 #include <picstyle.h>
 
-picstyle_index get_prop_picstyle_from_index(picstyle_type index)
+// Converts picstyle ID to Canon menu position (index)
+picstyle_id get_picstyle_menu_id(picstyle_menu_index index)
 {
     switch(index)
     {
-        case PICSTYLE_STD:        return PICSTYLE_STD_INDEX;
-        case PICSTYLE_PORTRAIT:   return PICSTYLE_PORTRAIT_INDEX;
-        case PICSTYLE_LANDSCAPE:  return PICSTYLE_LANDSCAPE_INDEX;
-        case PICSTYLE_NEUTRAL:    return PICSTYLE_NEUTRAL_INDEX;
-        case PICSTYLE_FAITHFUL:   return PICSTYLE_FAITHFUL_INDEX;
-        case PICSTYLE_MONO:       return PICSTYLE_MONO_INDEX;
-        case PICSTYLE_USER1:      return PICSTYLE_USER1_INDEX;
-        case PICSTYLE_USER2:      return PICSTYLE_USER2_INDEX;
-        case PICSTYLE_USER3:      return PICSTYLE_USER3_INDEX;
+        case PICSTYLE_STD:        return PICSTYLE_STD_ID;
+        case PICSTYLE_PORTRAIT:   return PICSTYLE_PORTRAIT_ID;
+        case PICSTYLE_LANDSCAPE:  return PICSTYLE_LANDSCAPE_ID;
+        case PICSTYLE_NEUTRAL:    return PICSTYLE_NEUTRAL_ID;
+        case PICSTYLE_FAITHFUL:   return PICSTYLE_FAITHFUL_ID;
+        case PICSTYLE_MONO:       return PICSTYLE_MONO_ID;
+        case PICSTYLE_USER1:      return PICSTYLE_USER1_ID;
+        case PICSTYLE_USER2:      return PICSTYLE_USER2_ID;
+        case PICSTYLE_USER3:      return PICSTYLE_USER3_ID;
         #if NUM_PICSTYLES > 9
-        case PICSTYLE_AUTO:       return PICSTYLE_AUTO_INDEX;
+        case PICSTYLE_AUTO:       return PICSTYLE_AUTO_ID;
         #endif
         #if NUM_PICSTYLES > 10
-        case PICSTYLE_FINEDETAIL: return PICSTYLE_FINEDETAIL_INDEX;
+        case PICSTYLE_FINEDETAIL: return PICSTYLE_FINEDETAIL_ID;
         #endif
     }
     bmp_printf(FONT_LARGE, 0, 0, "unk picstyle index: %x", index);
     return 0;
 }
 
-picstyle_type get_prop_picstyle_index(picstyle_index pic_style)
+// Converts picstyle menu index to picstyle ID.
+picstyle_menu_index get_prop_picstyle_index(picstyle_id pic_style)
 {
     switch(pic_style)
     {
-        case PICSTYLE_STD_INDEX:        return PICSTYLE_STD;
-        case PICSTYLE_PORTRAIT_INDEX:   return PICSTYLE_PORTRAIT;
-        case PICSTYLE_LANDSCAPE_INDEX:  return PICSTYLE_LANDSCAPE;
-        case PICSTYLE_NEUTRAL_INDEX:    return PICSTYLE_NEUTRAL;
-        case PICSTYLE_FAITHFUL_INDEX:   return PICSTYLE_FAITHFUL;
-        case PICSTYLE_MONO_INDEX:       return PICSTYLE_MONO;
-        case PICSTYLE_USER1_INDEX:      return PICSTYLE_USER1;
-        case PICSTYLE_USER2_INDEX:      return PICSTYLE_USER2;
-        case PICSTYLE_USER3_INDEX:      return PICSTYLE_USER2;
+        case PICSTYLE_STD_ID:        return PICSTYLE_STD;
+        case PICSTYLE_PORTRAIT_ID:   return PICSTYLE_PORTRAIT;
+        case PICSTYLE_LANDSCAPE_ID:  return PICSTYLE_LANDSCAPE;
+        case PICSTYLE_NEUTRAL_ID:    return PICSTYLE_NEUTRAL;
+        case PICSTYLE_FAITHFUL_ID:   return PICSTYLE_FAITHFUL;
+        case PICSTYLE_MONO_ID:       return PICSTYLE_MONO;
+        case PICSTYLE_USER1_ID:      return PICSTYLE_USER1;
+        case PICSTYLE_USER2_ID:      return PICSTYLE_USER2;
+        case PICSTYLE_USER3_ID:      return PICSTYLE_USER2;
         #if NUM_PICSTYLES > 9
-        case PICSTYLE_AUTO_INDEX:       return PICSTYLE_AUTO;
+        case PICSTYLE_AUTO_ID:       return PICSTYLE_AUTO;
         #endif
         #if NUM_PICSTYLES > 10
-        case PICSTYLE_FINEDETAIL_INDEX: return PICSTYLE_FINEDETAIL;
+        case PICSTYLE_FINEDETAIL_ID: return PICSTYLE_FINEDETAIL;
         #endif
     }
     bmp_printf(FONT_LARGE, 0, 0, "unk picstyle: %x", pic_style);
     return 0;
+}
+
+// Converts canon menu position (index) to PropID
+uint32_t get_picstyle_prop_id(picstyle_menu_index index)
+{
+    switch(index)
+    {
+        case PICSTYLE_STD:        return PROP_PICSTYLE_SETTINGS_STANDARD;
+        case PICSTYLE_PORTRAIT:   return PROP_PICSTYLE_SETTINGS_PORTRAIT;
+        case PICSTYLE_LANDSCAPE:  return PROP_PICSTYLE_SETTINGS_LANDSCAPE;
+        case PICSTYLE_NEUTRAL:    return PROP_PICSTYLE_SETTINGS_NEUTRAL;
+        case PICSTYLE_FAITHFUL:   return PROP_PICSTYLE_SETTINGS_FAITHFUL;
+        case PICSTYLE_MONO:       return PROP_PICSTYLE_SETTINGS_MONOCHROME;
+        case PICSTYLE_USER1:      return PROP_PICSTYLE_SETTINGS_USERDEF1;
+        case PICSTYLE_USER2:      return PROP_PICSTYLE_SETTINGS_USERDEF2;
+        case PICSTYLE_USER3:      return PROP_PICSTYLE_SETTINGS_USERDEF3;
+        #if NUM_PICSTYLES > 9
+        case PICSTYLE_AUTO:       return PROP_PICSTYLE_SETTINGS_AUTO;
+        #endif
+        #if NUM_PICSTYLES > 10
+        case PICSTYLE_FINEDETAIL: return PROP_PICSTYLE_SETTINGS_FINEDETAIL;
+        #endif
+    }
+    return PROP_PICSTYLE_SETTINGS_STANDARD; // Fallback to something safe
 }
 
 PROP_HANDLER(PROP_PICTURE_STYLE)
@@ -60,56 +86,56 @@ PROP_HANDLER(PROP_PICTURE_STYLE)
     lens_info.picstyle = get_prop_picstyle_index(raw);
 }
 
-// TODO: Why do we define +1 ?
+// N+1 for convinience - we use in-menu index for offsets (it starts from 1)
 struct prop_picstyle_settings picstyle_settings[NUM_PICSTYLES + 1];
 
 // prop_register_slave is much more difficult to use than copy/paste...
 
 PROP_HANDLER( PROP_PICSTYLE_SETTINGS_STANDARD ) {
-    memcpy(&picstyle_settings[2], buf, sizeof(*picstyle_settings));
+    memcpy(&picstyle_settings[PICSTYLE_STD], buf, sizeof(*picstyle_settings));
 }
 
 PROP_HANDLER( PROP_PICSTYLE_SETTINGS_PORTRAIT ) {
-    memcpy(&picstyle_settings[3], buf, sizeof(*picstyle_settings));
+    memcpy(&picstyle_settings[PICSTYLE_PORTRAIT], buf, sizeof(*picstyle_settings));
 }
 
 PROP_HANDLER( PROP_PICSTYLE_SETTINGS_LANDSCAPE ) {
-    memcpy(&picstyle_settings[4], buf, sizeof(*picstyle_settings));
+    memcpy(&picstyle_settings[PICSTYLE_LANDSCAPE], buf, sizeof(*picstyle_settings));
 }
 
 PROP_HANDLER( PROP_PICSTYLE_SETTINGS_NEUTRAL ) {
-    memcpy(&picstyle_settings[5], buf, sizeof(*picstyle_settings));
+    memcpy(&picstyle_settings[PICSTYLE_NEUTRAL], buf, sizeof(*picstyle_settings));
 }
 
 PROP_HANDLER( PROP_PICSTYLE_SETTINGS_FAITHFUL ) {
-    memcpy(&picstyle_settings[6], buf, sizeof(*picstyle_settings));
+    memcpy(&picstyle_settings[PICSTYLE_FAITHFUL], buf, sizeof(*picstyle_settings));
 }
 
 PROP_HANDLER( PROP_PICSTYLE_SETTINGS_MONOCHROME ) {
-    memcpy(&picstyle_settings[7], buf, sizeof(*picstyle_settings));
+    memcpy(&picstyle_settings[PICSTYLE_MONO], buf, sizeof(*picstyle_settings));
 }
 
 PROP_HANDLER( PROP_PICSTYLE_SETTINGS_USERDEF1 ) {
-    memcpy(&picstyle_settings[8], buf, sizeof(*picstyle_settings));
+    memcpy(&picstyle_settings[PICSTYLE_USER1], buf, sizeof(*picstyle_settings));
 }
 
 PROP_HANDLER( PROP_PICSTYLE_SETTINGS_USERDEF2 ) {
-    memcpy(&picstyle_settings[9], buf, sizeof(*picstyle_settings));
+    memcpy(&picstyle_settings[PICSTYLE_USER2], buf, sizeof(*picstyle_settings));
 }
 
 PROP_HANDLER( PROP_PICSTYLE_SETTINGS_USERDEF3 ) {
-    memcpy(&picstyle_settings[10], buf, sizeof(*picstyle_settings));
+    memcpy(&picstyle_settings[PICSTYLE_USER3], buf, sizeof(*picstyle_settings));
 }
 
 #if NUM_PICSTYLES > 9
 PROP_HANDLER( PROP_PICSTYLE_SETTINGS_AUTO ) {
-    memcpy(&picstyle_settings[10], buf, sizeof(*picstyle_settings));
+    memcpy(&picstyle_settings[PICSTYLE_AUTO], buf, sizeof(*picstyle_settings));
 }
 #endif
 
 #if NUM_PICSTYLES > 10
 PROP_HANDLER( PROP_PICSTYLE_SETTINGS_FINEDETAIL ) {
-    memcpy(&picstyle_settings[10], buf, sizeof(*picstyle_settings));
+    memcpy(&picstyle_settings[PICSTYLE_FINEDETAIL], buf, sizeof(*picstyle_settings));
 }
 #endif
 
@@ -167,46 +193,93 @@ static uint32_t picstyle_of_user3;
 //static PROP_INT(PROP_PICSTYLE_OF_USERDEF2, picstyle_of_user2);
 //static PROP_INT(PROP_PICSTYLE_OF_USERDEF3, picstyle_of_user3);
 
-const char* get_picstyle_name(picstyle_index pic_style)
+const char* get_picstyle_name(picstyle_id pic_style)
 {
     switch(pic_style){
-        case PICSTYLE_STD_INDEX:        return "Standard";
-        case PICSTYLE_PORTRAIT_INDEX:   return "Portrait";
-        case PICSTYLE_LANDSCAPE_INDEX:  return "Landscape";
-        case PICSTYLE_NEUTRAL_INDEX:    return "Neutral";
-        case PICSTYLE_FAITHFUL_INDEX:   return "Faithful";
-        case PICSTYLE_MONO_INDEX:       return "Monochrome";
-        case PICSTYLE_USER1_INDEX:      return (picstyle_of_user1 < 0x80 ? user_picstyle_name_1 : "UserDef1");
-        case PICSTYLE_USER2_INDEX:      return (picstyle_of_user2 < 0x80 ? user_picstyle_name_2 : "UserDef2");
-        case PICSTYLE_USER3_INDEX:      return (picstyle_of_user3 < 0x80 ? user_picstyle_name_3 : "UserDef3");
+        case PICSTYLE_STD_ID:        return "Standard";
+        case PICSTYLE_PORTRAIT_ID:   return "Portrait";
+        case PICSTYLE_LANDSCAPE_ID:  return "Landscape";
+        case PICSTYLE_NEUTRAL_ID:    return "Neutral";
+        case PICSTYLE_FAITHFUL_ID:   return "Faithful";
+        case PICSTYLE_MONO_ID:       return "Monochrome";
+        case PICSTYLE_USER1_ID:      return (picstyle_of_user1 < 0x80 ? user_picstyle_name_1 : "UserDef1");
+        case PICSTYLE_USER2_ID:      return (picstyle_of_user2 < 0x80 ? user_picstyle_name_2 : "UserDef2");
+        case PICSTYLE_USER3_ID:      return (picstyle_of_user3 < 0x80 ? user_picstyle_name_3 : "UserDef3");
         #if NUM_PICSTYLES > 9
-        case PICSTYLE_AUTO_INDEX:       return "Auto";
+        case PICSTYLE_AUTO_ID:       return "Auto";
         #endif
         #if NUM_PICSTYLES > 10
-        case PICSTYLE_FINEDETAIL_INDEX: return "Fine Detail";
+        case PICSTYLE_FINEDETAIL_ID: return "Fine Detail";
         #endif
     }
     return "Unknown";
 }
 
-const char* get_picstyle_shortname(picstyle_index pic_style)
+const char* get_picstyle_shortname(picstyle_id pic_style)
 {
     switch(pic_style){
-        case PICSTYLE_STD_INDEX:        return "Std.";
-        case PICSTYLE_PORTRAIT_INDEX:   return "Port.";
-        case PICSTYLE_LANDSCAPE_INDEX:  return "Land.";
-        case PICSTYLE_NEUTRAL_INDEX:    return "Neut.";
-        case PICSTYLE_FAITHFUL_INDEX:   return "Fait.";
-        case PICSTYLE_MONO_INDEX:       return "Mono.";
-        case PICSTYLE_USER1_INDEX:      return (picstyle_of_user1 < 0x80 ? user_picstyle_shortname_1 : "User1");
-        case PICSTYLE_USER2_INDEX:      return (picstyle_of_user2 < 0x80 ? user_picstyle_shortname_2 : "User2");
-        case PICSTYLE_USER3_INDEX:      return (picstyle_of_user3 < 0x80 ? user_picstyle_shortname_3 : "User3");
+        case PICSTYLE_STD_ID:        return "Std.";
+        case PICSTYLE_PORTRAIT_ID:   return "Port.";
+        case PICSTYLE_LANDSCAPE_ID:  return "Land.";
+        case PICSTYLE_NEUTRAL_ID:    return "Neut.";
+        case PICSTYLE_FAITHFUL_ID:   return "Fait.";
+        case PICSTYLE_MONO_ID:       return "Mono.";
+        case PICSTYLE_USER1_ID:      return (picstyle_of_user1 < 0x80 ? user_picstyle_shortname_1 : "User1");
+        case PICSTYLE_USER2_ID:      return (picstyle_of_user2 < 0x80 ? user_picstyle_shortname_2 : "User2");
+        case PICSTYLE_USER3_ID:      return (picstyle_of_user3 < 0x80 ? user_picstyle_shortname_3 : "User3");
         #if NUM_PICSTYLES > 9
-        case PICSTYLE_AUTO_INDEX:       return "Auto";
+        case PICSTYLE_AUTO_ID:       return "Auto";
         #endif
         #if NUM_PICSTYLES > 10
-        case PICSTYLE_FINEDETAIL_INDEX: return "FinD.";
+        case PICSTYLE_FINEDETAIL_ID: return "FinD.";
         #endif
     }
     return "Unk.";
 }
+
+// moved from lens.c
+
+// get contrast/saturation/etc from the current picture style
+#define LENS_GET_FROM_PICSTYLE(param) \
+int \
+lens_get_##param() \
+{ \
+    int i = lens_info.picstyle; \
+    if (!i) return -10; \
+    return picstyle_settings[i].param; \
+} \
+
+#define LENS_GET_FROM_OTHER_PICSTYLE(param) \
+int \
+lens_get_from_other_picstyle_##param(int picstyle_index) \
+{ \
+    return picstyle_settings[picstyle_index].param; \
+} \
+
+// set contrast/saturation/etc in the current picture style (change is permanent!)
+#define LENS_SET_IN_PICSTYLE(param,lo,hi) \
+void \
+lens_set_##param(int value) \
+{ \
+    if (value < lo || value > hi) return; \
+    int i = lens_info.picstyle; \
+    if (!i) return; \
+    picstyle_settings[i].param = value; \
+    prop_request_change(get_picstyle_prop_id(i), &picstyle_settings[i], sizeof(*picstyle_settings)); \
+} \
+
+// TODO: Add Digic 6+ sharpness params
+LENS_GET_FROM_PICSTYLE(contrast)
+LENS_GET_FROM_PICSTYLE(sharpness)
+LENS_GET_FROM_PICSTYLE(saturation)
+LENS_GET_FROM_PICSTYLE(color_tone)
+
+LENS_GET_FROM_OTHER_PICSTYLE(contrast)
+LENS_GET_FROM_OTHER_PICSTYLE(sharpness)
+LENS_GET_FROM_OTHER_PICSTYLE(saturation)
+LENS_GET_FROM_OTHER_PICSTYLE(color_tone)
+
+LENS_SET_IN_PICSTYLE(contrast, -4, 4)
+LENS_SET_IN_PICSTYLE(sharpness, -1, 7)
+LENS_SET_IN_PICSTYLE(saturation, -4, 4)
+LENS_SET_IN_PICSTYLE(color_tone, -4, 4)

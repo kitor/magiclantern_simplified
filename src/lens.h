@@ -67,7 +67,7 @@ struct lens_info
         int8_t                  wbs_gm;
         int8_t                  wbs_ba;
 
-        unsigned                picstyle; // 1 ... 9: std, portrait, landscape, neutral, faithful, monochrome, user 1, user 2, user 3
+        unsigned                picstyle; // see picstyle.h enum picstyle_menu_index
 
         // raw exposure values, in 1/8 EV steps
         uint8_t                 raw_aperture;
@@ -222,18 +222,6 @@ struct prop_focus
 } __attribute__((packed));
 
 SIZE_CHECK_STRUCT( prop_focus, 5 );
-
-struct prop_picstyle_settings
-{
-        int32_t         contrast;   // -4..4
-        uint32_t        sharpness;  // 0..7
-        int32_t         saturation; // -4..4
-        int32_t         color_tone; // -4..4
-        uint32_t        off_0x10;   // deadbeaf?!
-        uint32_t        off_0x14;   // deadbeaf?!
-} __attribute__((aligned,packed));
-
-SIZE_CHECK_STRUCT( prop_picstyle_settings, 0x18 );
 
 void lens_wait_readytotakepic(int wait);
 

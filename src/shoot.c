@@ -2208,7 +2208,7 @@ static MENU_UPDATE_FUNC(picstyle_display)
     int i = picstyle_rec && RECORDING ? picstyle_before_rec : (int)lens_info.picstyle;
     
     MENU_SET_VALUE(
-        get_picstyle_name(get_prop_picstyle_from_index(i))
+        get_picstyle_name(get_picstyle_menu_id(i))
     );
 
     
@@ -2216,7 +2216,7 @@ static MENU_UPDATE_FUNC(picstyle_display)
     {
         MENU_SET_RINFO(
             "REC:%s",
-            get_picstyle_name(get_prop_picstyle_from_index(picstyle_rec))
+            get_picstyle_name(get_picstyle_menu_id(picstyle_rec))
         );
     }
     else MENU_SET_RINFO(
@@ -2232,7 +2232,7 @@ static MENU_UPDATE_FUNC(picstyle_display)
 
 static MENU_UPDATE_FUNC(picstyle_display_submenu)
 {
-    int p = get_prop_picstyle_from_index(lens_info.picstyle);
+    int p = get_picstyle_menu_id(lens_info.picstyle);
     MENU_SET_VALUE(
         "%s",
         get_picstyle_name(p)
@@ -2248,7 +2248,7 @@ picstyle_toggle(void* priv, int sign )
     p = MOD(p + sign - 1, NUM_PICSTYLES) + 1;
     if (p)
     {
-        p = get_prop_picstyle_from_index(p);
+        p = get_picstyle_menu_id(p);
         prop_request_change(PROP_PICTURE_STYLE, &p, 4);
     }
 }
@@ -2264,7 +2264,7 @@ static MENU_UPDATE_FUNC(picstyle_rec_sub_display)
     }
     
     MENU_SET_VALUE(
-        get_picstyle_name(get_prop_picstyle_from_index(picstyle_rec))
+        get_picstyle_name(get_picstyle_menu_id(picstyle_rec))
     );
     //~ MENU_SET_RINFO(
     if (info->can_custom_draw) bmp_printf(MENU_FONT_GRAY, info->x_val, info->y + font_large.height,
