@@ -3,7 +3,6 @@
 
 typedef enum{
     // This is "in menu" order which is different than property order. Starts from 1
-    PICSTYLE_DNE,  // Placeholder to fill index 0
     #if NUM_PICSTYLES > 9
     PICSTYLE_AUTO,
     #endif
@@ -20,7 +19,7 @@ typedef enum{
     PICSTYLE_USER1,
     PICSTYLE_USER2,
     PICSTYLE_USER3
-} picstyle_menu_index;
+} picstyle_index;
 
 typedef enum{
     PICSTYLE_STD_ID        = 0x81,
@@ -57,13 +56,13 @@ SIZE_CHECK_STRUCT( prop_picstyle_settings, 0x18 );
 struct prop_picstyle_settings
 {
         int32_t         contrast;   // -4..4
-        uint32_t        sharpness;  // 0..7, sharpness strength
+        uint32_t        sharpness;  // 0..7,
         int32_t         saturation; // -4..4
         int32_t         color_tone; // -4..4
         uint32_t        off_0x10;   // 0xDEADBEEF
         uint32_t        off_0x14;   // 0xDEADBEEF
-        uint32_t        fineness;   // 1..5, sharpness fineness
-        uint32_t        threshold;  // 1..5, sharpness threshold
+        uint32_t        sharpness_fineness;   // 1..5
+        uint32_t        sharpness_threshold;  // 1..5
 } __attribute__((aligned,packed));
 
 SIZE_CHECK_STRUCT( prop_picstyle_settings, 0x20 );
@@ -71,18 +70,8 @@ SIZE_CHECK_STRUCT( prop_picstyle_settings, 0x20 );
 #error prop_picstyle_settings not validated for your digic generation
 #endif
 
-
-
-// TODO: Can we somehow move choices from shoot.c FEATURE_PICSTYLE
-// to here?
-
-picstyle_id get_picstyle_menu_id(picstyle_menu_index index);
-picstyle_menu_index  get_prop_picstyle_index(picstyle_id pic_style);
-uint32_t get_picstyle_prop_id(picstyle_menu_index index);
-
-/* todo: move them to picstyle.c */
 const char * get_picstyle_name(picstyle_id pic_style);
-const char * get_picstyle_shortname(picstyle_id pic_style);
+void rec_picstyle_change(int rec);
 
 int lens_get_sharpness(void);
 int lens_get_contrast(void);
