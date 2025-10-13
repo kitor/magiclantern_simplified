@@ -2926,31 +2926,6 @@ static LVINFO_UPDATE_FUNC(alo_htp_update)
     );
 }
 
-#ifdef FEATURE_PICSTYLE
-static LVINFO_UPDATE_FUNC(picstyle_update)
-{
-    LVINFO_BUFFER(12);
-
-    if (is_movie_mode())
-    {
-        /* picture style has no effect on raw video => don't display */
-        if (raw_lv_is_enabled())
-            return;
-    }
-    else
-    {
-        /* when shooting RAW photos, picture style only affects the preview => don't display */
-        int jpg = pic_quality & 0x10000;
-        if (!jpg)
-            return;
-    }
-
-    snprintf(buffer, sizeof(buffer), "%s",
-        (char*)get_picstyle_name(lens_info.raw_picstyle)
-    );
-}
-#endif
-
 
 static LVINFO_UPDATE_FUNC(temp_update)
 {
@@ -3354,14 +3329,6 @@ static struct lvinfo_item info_items[] = {
         .update = alo_htp_update,
         .priority = -1,
     },
-    #ifdef FEATURE_PICSTYLE
-    {
-        .name = "Pic.Style",
-        .which_bar = LV_TOP_BAR_ONLY,
-        .update = picstyle_update,
-        .priority = -1,
-    },
-    #endif
     {
         .name = "Temperature",
         .which_bar = LV_TOP_BAR_ONLY,
