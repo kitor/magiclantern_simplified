@@ -78,6 +78,8 @@ void refresh_yuv_from_rgb(void);
 void refresh_yuv_from_rgb_task(void *);
 uint32_t indexed2rgb(uint8_t color);
 
+void rgba_buffer_clear(void);
+
 #define RGB_LUT_SIZE 80
 inline uint8_t *bmp_vram_raw() {
     struct MARV *marv = rgb_vram_info;

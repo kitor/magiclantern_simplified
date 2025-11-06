@@ -1314,14 +1314,7 @@ mvr_create_logfile(
         );
 
     #ifdef FEATURE_PICSTYLE
-    MVR_LOG_APPEND (
-        "Picture Style  : %s (%d,%d,%d,%d)\n", 
-        get_picstyle_name(lens_info.raw_picstyle), 
-        lens_get_sharpness(),
-        lens_get_contrast(),
-        ABS(lens_get_saturation()) < 10 ? lens_get_saturation() : 0,
-        ABS(lens_get_color_tone()) < 10 ? lens_get_color_tone() : 0
-        );
+    picstyle_mvr_log_append(mvr_logfile_buffer);
     #endif
 
     /* todo: refactor these with callbacks (these calls are private) */
@@ -2301,64 +2294,6 @@ lens_init( void* unused )
 INIT_FUNC( "lens", lens_init );
 
 
-// picture style, contrast...
-// -------------------------------------------
-
-PROP_HANDLER(PROP_PICTURE_STYLE)
-{
-    const uint32_t raw = *(uint32_t *) buf;
-    lens_info.raw_picstyle = raw;
-    lens_info.picstyle = get_prop_picstyle_index(raw);
-}
-
-extern struct prop_picstyle_settings picstyle_settings[];
-
-// get contrast/saturation/etc from the current picture style
-
-#define LENS_GET_FROM_PICSTYLE(param) \
-int \
-lens_get_##param() \
-{ \
-    int i = lens_info.picstyle; \
-    if (!i) return -10; \
-    return picstyle_settings[i].param; \
-} \
-
-#define LENS_GET_FROM_OTHER_PICSTYLE(param) \
-int \
-lens_get_from_other_picstyle_##param(int picstyle_index) \
-{ \
-    return picstyle_settings[picstyle_index].param; \
-} \
-
-// set contrast/saturation/etc in the current picture style (change is permanent!)
-#define LENS_SET_IN_PICSTYLE(param,lo,hi) \
-void \
-lens_set_##param(int value) \
-{ \
-    if (value < lo || value > hi) return; \
-    int i = lens_info.picstyle; \
-    if (!i) return; \
-    picstyle_settings[i].param = value; \
-    prop_request_change(PROP_PICSTYLE_SETTINGS(i), &picstyle_settings[i], 24); \
-} \
-
-LENS_GET_FROM_PICSTYLE(contrast)
-LENS_GET_FROM_PICSTYLE(sharpness)
-LENS_GET_FROM_PICSTYLE(saturation)
-LENS_GET_FROM_PICSTYLE(color_tone)
-
-LENS_GET_FROM_OTHER_PICSTYLE(contrast)
-LENS_GET_FROM_OTHER_PICSTYLE(sharpness)
-LENS_GET_FROM_OTHER_PICSTYLE(saturation)
-LENS_GET_FROM_OTHER_PICSTYLE(color_tone)
-
-LENS_SET_IN_PICSTYLE(contrast, -4, 4)
-LENS_SET_IN_PICSTYLE(sharpness, -1, 7)
-LENS_SET_IN_PICSTYLE(saturation, -4, 4)
-LENS_SET_IN_PICSTYLE(color_tone, -4, 4)
-
-
 // half shutter
 void SW1(int v, int wait)
 {
@@ -2984,31 +2919,6 @@ static LVINFO_UPDATE_FUNC(alo_htp_update)
     );
 }
 
-#ifdef FEATURE_PICSTYLE
-static LVINFO_UPDATE_FUNC(picstyle_update)
-{
-    LVINFO_BUFFER(12);
-
-    if (is_movie_mode())
-    {
-        /* picture style has no effect on raw video => don't display */
-        if (raw_lv_is_enabled())
-            return;
-    }
-    else
-    {
-        /* when shooting RAW photos, picture style only affects the preview => don't display */
-        int jpg = pic_quality & 0x10000;
-        if (!jpg)
-            return;
-    }
-
-    snprintf(buffer, sizeof(buffer), "%s",
-        (char*)get_picstyle_name(lens_info.raw_picstyle)
-    );
-}
-#endif
-
 
 static LVINFO_UPDATE_FUNC(temp_update)
 {
@@ -3412,14 +3322,6 @@ static struct lvinfo_item info_items[] = {
         .update = alo_htp_update,
         .priority = -1,
     },
-    #ifdef FEATURE_PICSTYLE
-    {
-        .name = "Pic.Style",
-        .which_bar = LV_TOP_BAR_ONLY,
-        .update = picstyle_update,
-        .priority = -1,
-    },
-    #endif
     {
         .name = "Temperature",
         .which_bar = LV_TOP_BAR_ONLY,

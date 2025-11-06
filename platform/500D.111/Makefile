@@ -16,7 +16,5 @@ PLATFORM_ARCH = armv5te
 #
 RESTARTSTART = 0x4D000
 
-ML_PICSTYLE_AUTO = n
-
 include ../Makefile
 .DEFAULT_GOAL := $(BUILD_DIR)/cam_complete

@@ -122,7 +122,7 @@
 //#define BFNT_BITMAP_OFFSET          0x00000000
 //#define BFNT_BITMAP_DATA            0x00000000
 
-#define NUM_PICSTYLES 10 // guess, but seems to be always 9 for old cams, 10 for new
+#define NUM_PICSTYLES 11
 
 #define AUDIO_MONITORING_HEADPHONES_CONNECTED 0
 #define INFO_BTN_NAME               "INFO"

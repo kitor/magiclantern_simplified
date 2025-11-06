@@ -2109,291 +2109,6 @@ wbs_ba_toggle( void * priv, int sign )
 
 #endif
 
-#ifdef FEATURE_PICSTYLE
-
-static void
-contrast_toggle( void * priv, int sign )
-{
-    int c = lens_get_contrast();
-    if (c < -4 || c > 4) return;
-    int newc = MOD((c + 4 + sign), 9) - 4;
-    lens_set_contrast(newc);
-}
-
-
-static MENU_UPDATE_FUNC(contrast_display)
-{
-    int s = lens_get_contrast();
-    MENU_SET_VALUE(
-        "%d",
-        s
-    );
-    MENU_SET_ICON(MNI_PERCENT, (s+4) * 100 / 8);
-}
-
-static void
-sharpness_toggle( void * priv, int sign )
-{
-    int c = lens_get_sharpness();
-    if (c < 0 || c > 7) return;
-    int newc = MOD(c + sign, 8);
-    lens_set_sharpness(newc);
-}
-
-static MENU_UPDATE_FUNC(sharpness_display)
-{
-    int s = lens_get_sharpness();
-    MENU_SET_VALUE(
-        "%d ",
-        s
-    );
-    MENU_SET_ICON(MNI_PERCENT, s * 100 / 7);
-}
-
-static void
-saturation_toggle( void * priv, int sign )
-{
-    int c = lens_get_saturation();
-    if (c < -4 || c > 4) return;
-    int newc = MOD((c + 4 + sign), 9) - 4;
-    lens_set_saturation(newc);
-}
-
-static MENU_UPDATE_FUNC(saturation_display)
-{
-    int s = lens_get_saturation();
-    int ok = (s >= -4 && s <= 4);
-    MENU_SET_VALUE(
-        ok ? 
-            "%d " :
-            "N/A",
-        s
-    );
-    MENU_SET_ENABLED(ok);
-    if (ok) MENU_SET_ICON(MNI_PERCENT, (s+4) * 100 / 8);
-    else { MENU_SET_ICON(MNI_OFF, 0); MENU_SET_WARNING(MENU_WARN_NOT_WORKING, "N/A"); }
-}
-
-static void
-color_tone_toggle( void * priv, int sign )
-{
-    int c = lens_get_color_tone();
-    if (c < -4 || c > 4) return;
-    int newc = MOD((c + 4 + sign), 9) - 4;
-    lens_set_color_tone(newc);
-}
-
-static MENU_UPDATE_FUNC(color_tone_display)
-{
-    int s = lens_get_color_tone();
-    int ok = (s >= -4 && s <= 4);
-    MENU_SET_VALUE(
-        ok ? 
-            "%d " :
-            "N/A",
-        s
-    );
-    MENU_SET_ENABLED(ok);
-    if (ok) MENU_SET_ICON(MNI_PERCENT, (s+4) * 100 / 8);
-    else { MENU_SET_ICON(MNI_OFF, 0); MENU_SET_WARNING(MENU_WARN_NOT_WORKING, "N/A"); }
-}
-
-static CONFIG_INT("picstyle.rec", picstyle_rec, 0);
-static int picstyle_before_rec = 0; // if you use a custom picstyle during REC, the old one will be saved here
-
-static char user_picstyle_name_1[50] = "";
-static char user_picstyle_name_2[50] = "";
-static char user_picstyle_name_3[50] = "";
-static char user_picstyle_shortname_1[10] = "";
-static char user_picstyle_shortname_2[10] = "";
-static char user_picstyle_shortname_3[10] = "";
-
-static void copy_picstyle_name(char* fullname, char* shortname, char* name)
-{
-    snprintf(fullname, 50, "%s", name);
-    // CineStyle => CineS
-    // Flaat_10p => Fl10p
-    // Flaat_2   => Flaa2
-    // Flaat03   => Fla03
-    
-    int L = strlen(name);
-    shortname[0] = name[0];
-    shortname[1] = name[1];
-    shortname[2] = name[2];
-    shortname[3] = name[3];
-    shortname[4] = name[4];
-    shortname[5] = '\0';
-    
-    if (isdigit(name[L-3]))
-        shortname[2] = name[L-3];
-    if (isdigit(name[L-3]) || isdigit(name[L-2]))
-        shortname[3] = name[L-2];
-    if (isdigit(name[L-3]) || isdigit(name[L-2]) || isdigit(name[L-1]))
-        shortname[4] = name[L-1];
-}
-
-PROP_HANDLER(PROP_PC_FLAVOR1_PARAM)
-{
-    copy_picstyle_name(user_picstyle_name_1, user_picstyle_shortname_1, (char*) buf + 4);
-}
-PROP_HANDLER(PROP_PC_FLAVOR2_PARAM)
-{
-    copy_picstyle_name(user_picstyle_name_2, user_picstyle_shortname_2, (char*) buf + 4);
-}
-PROP_HANDLER(PROP_PC_FLAVOR3_PARAM)
-{
-    copy_picstyle_name(user_picstyle_name_3, user_picstyle_shortname_3, (char*) buf + 4);
-}
-
-static PROP_INT(PROP_PICSTYLE_OF_USERDEF1, picstyle_of_user1);
-static PROP_INT(PROP_PICSTYLE_OF_USERDEF2, picstyle_of_user2);
-static PROP_INT(PROP_PICSTYLE_OF_USERDEF3, picstyle_of_user3);
-
-
-const char* get_picstyle_name(int raw_picstyle)
-{
-    return
-        raw_picstyle == 0x81 ? "Standard" : 
-        raw_picstyle == 0x82 ? "Portrait" :
-        raw_picstyle == 0x83 ? "Landscape" :
-        raw_picstyle == 0x84 ? "Neutral" :
-        raw_picstyle == 0x85 ? "Faithful" :
-        raw_picstyle == 0x86 ? "Monochrome" :
-        raw_picstyle == 0x87 ? "Auto" :
-        raw_picstyle == 0x21 ? (picstyle_of_user1 < 0x80 ? user_picstyle_name_1 : "UserDef1") :
-        raw_picstyle == 0x22 ? (picstyle_of_user2 < 0x80 ? user_picstyle_name_2 : "UserDef2") :
-        raw_picstyle == 0x23 ? (picstyle_of_user3 < 0x80 ? user_picstyle_name_3 : "UserDef3") : 
-                                "Unknown";
-}
-
-const char* get_picstyle_shortname(int raw_picstyle)
-{
-    return
-        raw_picstyle == 0x81 ? "Std." : 
-        raw_picstyle == 0x82 ? "Port." :
-        raw_picstyle == 0x83 ? "Land." :
-        raw_picstyle == 0x84 ? "Neut." :
-        raw_picstyle == 0x85 ? "Fait." :
-        raw_picstyle == 0x86 ? "Mono." :
-        raw_picstyle == 0x87 ? "Auto" :
-        raw_picstyle == 0x21 ? (picstyle_of_user1 < 0x80 ? user_picstyle_shortname_1 : "User1") :
-        raw_picstyle == 0x22 ? (picstyle_of_user2 < 0x80 ? user_picstyle_shortname_2 : "User2") :
-        raw_picstyle == 0x23 ? (picstyle_of_user3 < 0x80 ? user_picstyle_shortname_3 : "User3") : 
-                            "Unk.";
-}
-static MENU_UPDATE_FUNC(picstyle_display)
-{
-    int i = picstyle_rec && RECORDING ? picstyle_before_rec : (int)lens_info.picstyle;
-    
-    MENU_SET_VALUE(
-        get_picstyle_name(get_prop_picstyle_from_index(i))
-    );
-
-    
-    if (picstyle_rec && is_movie_mode())
-    {
-        MENU_SET_RINFO(
-            "REC:%s",
-            get_picstyle_name(get_prop_picstyle_from_index(picstyle_rec))
-        );
-    }
-    else MENU_SET_RINFO(
-            "%d,%d,%d,%d",
-            lens_get_from_other_picstyle_sharpness(i),
-            lens_get_from_other_picstyle_contrast(i),
-            ABS(lens_get_from_other_picstyle_saturation(i)) < 10 ? lens_get_from_other_picstyle_saturation(i) : 0,
-            ABS(lens_get_from_other_picstyle_color_tone(i)) < 10 ? lens_get_from_other_picstyle_color_tone(i) : 0
-        );
-    
-    MENU_SET_ENABLED(1);
-}
-
-static MENU_UPDATE_FUNC(picstyle_display_submenu)
-{
-    int p = get_prop_picstyle_from_index(lens_info.picstyle);
-    MENU_SET_VALUE(
-        "%s",
-        get_picstyle_name(p)
-    );
-    MENU_SET_ENABLED(1);
-}
-
-static void
-picstyle_toggle(void* priv, int sign )
-{
-    if (RECORDING) return;
-    int p = lens_info.picstyle;
-    p = MOD(p + sign - 1, NUM_PICSTYLES) + 1;
-    if (p)
-    {
-        p = get_prop_picstyle_from_index(p);
-        prop_request_change(PROP_PICTURE_STYLE, &p, 4);
-    }
-}
-
-#ifdef FEATURE_REC_PICSTYLE
-
-static MENU_UPDATE_FUNC(picstyle_rec_sub_display)
-{
-    if (!picstyle_rec)
-    {
-        MENU_SET_VALUE("OFF");
-        return;
-    }
-    
-    MENU_SET_VALUE(
-        get_picstyle_name(get_prop_picstyle_from_index(picstyle_rec))
-    );
-    //~ MENU_SET_RINFO(
-    if (info->can_custom_draw) bmp_printf(MENU_FONT_GRAY, info->x_val, info->y + font_large.height,
-        "%d,%d,%d,%d",
-        lens_get_from_other_picstyle_sharpness(picstyle_rec),
-        lens_get_from_other_picstyle_contrast(picstyle_rec),
-        ABS(lens_get_from_other_picstyle_saturation(picstyle_rec)) < 10 ? lens_get_from_other_picstyle_saturation(picstyle_rec) : 0,
-        ABS(lens_get_from_other_picstyle_color_tone(picstyle_rec)) < 10 ? lens_get_from_other_picstyle_color_tone(picstyle_rec) : 0
-    );
-}
-
-static void
-picstyle_rec_sub_toggle( void * priv, int delta )
-{
-    if (RECORDING) return;
-    picstyle_rec = MOD(picstyle_rec+ delta, NUM_PICSTYLES+1);
-}
-
-static void rec_picstyle_change(int rec)
-{
-    static int prev = 0;
-
-    if (picstyle_rec)
-    {
-        if (prev == 0 && rec) // will start recording
-        {
-            picstyle_before_rec = lens_info.picstyle;
-            int p = get_prop_picstyle_from_index(picstyle_rec);
-            if (p)
-            {
-                NotifyBox(2000, "Picture Style : %s", get_picstyle_name(p));
-                prop_request_change(PROP_PICTURE_STYLE, &p, 4);
-            }
-        }
-        else if (prev == 2 && rec == 0) // recording => will stop
-        {
-            int p = get_prop_picstyle_from_index(picstyle_before_rec);
-            if (p)
-            {
-                NotifyBox(2000, "Picture Style : %s", get_picstyle_name(p));
-                prop_request_change(PROP_PICTURE_STYLE, &p, 4);
-            }
-            picstyle_before_rec = 0;
-        }
-    }
-    prev = rec;
-}
-
-#endif // REC pic style
-#endif // pic style
-
 /* to be refactored with CBR */
 extern void rec_notify_trigger(int rec);
 
@@ -2409,11 +2124,11 @@ PROP_HANDLER(PROP_SHOOTING_TYPE)
     #ifdef FEATURE_REC_NOTIFY
     rec_notify_trigger(rec);
     #endif
-    
+
     #ifdef FEATURE_REC_PICSTYLE
-    rec_picstyle_change(rec);
+    picstyle_change_for_rec(rec);
     #endif
-    
+
     #ifdef CONFIG_MOVIE_RECORDING_50D_SHUTTER_HACK
     extern void shutter_btn_rec_do(int rec); /* movtweaks.c */
     shutter_btn_rec_do(rec);
@@ -2426,9 +2141,9 @@ void mvr_rec_start_shoot(int rec)
     #ifdef FEATURE_REC_NOTIFY
     rec_notify_trigger(rec);
     #endif
-    
+
     #ifdef FEATURE_REC_PICSTYLE
-    rec_picstyle_change(rec);
+    picstyle_change_for_rec(rec);
     #endif
 }
 #endif
@@ -2659,34 +2374,37 @@ int handle_zoom_x5_x10(struct event * event)
 }
 
 // called from some prop_handlers (shoot.c and zebra.c)
+// Requires FEATURE_PICSTYLE to work
+// TODO: This code seems to be fully and only dependent on FEATURE_PICSTYLE
+//       so it could be possibly moved there, no need for a separate feature?
 void zoom_sharpen_step()
 {
-#ifdef FEATURE_LV_ZOOM_SHARP_CONTRAST
+#if defined(FEATURE_LV_ZOOM_SHARP_CONTRAST) && defined(FEATURE_PICSTYLE)
     if (!zoom_sharpen) return;
 
     static int co = 100;
     static int sa = 100;
     static int sh = 100;
-    
+
     if (zoom_sharpen && lv && lv_dispsize > 1 && (!HALFSHUTTER_PRESSED || zoom_was_triggered_by_halfshutter) && !gui_menu_shown()) // bump contrast/sharpness
     {
         if (co == 100)
         {
-            co = lens_get_contrast();
-            sh = lens_get_sharpness();
-            sa = lens_get_saturation();
-            lens_set_contrast(4);
-            lens_set_sharpness(7);
-            lens_set_saturation(MAX(0, sa));
+            co = picstyle_get_current_contrast();
+            sh = picstyle_get_current_sharpness();
+            sa = picstyle_get_current_saturation();
+            picstyle_set_current_contrast(4);
+            picstyle_set_current_sharpness(7);
+            picstyle_set_current_saturation(MAX(0, sa));
         }
     }
     else // restore contrast/sharpness
     {
         if (co < 100)
         {
-            lens_set_contrast(co);
-            lens_set_sharpness(sh);
-            lens_set_saturation(sa);
+            picstyle_set_current_contrast(co);
+            picstyle_set_current_sharpness(sh);
+            picstyle_set_current_saturation(sa);
             co = sa = sh = 100;
         }
     }
@@ -4424,95 +4142,8 @@ static struct menu_entry expo_menus[] = {
         .edit_mode = EM_SHOW_LIVEVIEW,
     },
     #endif
-    #ifdef FEATURE_PICSTYLE
-    {
-        .name = "Picture Style",
-        .update     = picstyle_display,
-        .select     = picstyle_toggle,
-        .priv = &lens_info.picstyle,
-        .help = "Change current picture style.",
-        .edit_mode = EM_SHOW_LIVEVIEW,
-        .icon_type = IT_DICE,
-        .choices = (const char *[]) {
-                #if NUM_PICSTYLES == 10 // 600D, 5D3...
-                "Auto",
-                #endif
-                "Standard", "Portrait", "Landscape", "Neutral", "Faithful", "Monochrome", "UserDef1", "UserDef2", "UserDef3" },
-        .min = 1,
-        .max = NUM_PICSTYLES,
-        .submenu_width = 550,
-        .submenu_height = 300,
-        //~ .show_liveview = 1,
-        //~ //.essential = FOR_PHOTO | FOR_MOVIE,
-        .children =  (struct menu_entry[]) {
-            {
-                .name = "Picture Style",
-                .priv = &lens_info.picstyle,
-                .min = 1,
-                .max = NUM_PICSTYLES,
-                .choices = (const char *[]) {
-                        #if NUM_PICSTYLES == 10 // 600D, 5D3...
-                        "Auto",
-                        #endif
-                        "Standard", "Portrait", "Landscape", "Neutral", "Faithful", "Monochrome", "UserDef1", "UserDef2", "UserDef3" },
-                .update     = picstyle_display_submenu,
-                .select     = picstyle_toggle,
-                .help = "Change current picture style.",
-                //~ .show_liveview = 1,
-                .edit_mode = EM_SHOW_LIVEVIEW,
-                .icon_type = IT_DICE,
-            },
-            {
-                .name = "Sharpness",
-                .update     = sharpness_display,
-                .select     = sharpness_toggle,
-                .help = "Adjust sharpness in current picture style.",
-                .edit_mode = EM_SHOW_LIVEVIEW,
-            },
-            {
-                .name = "Contrast",
-                .update     = contrast_display,
-                .select     = contrast_toggle,
-                .help = "Adjust contrast in current picture style.",
-                .edit_mode = EM_SHOW_LIVEVIEW,
-            },
-            {
-                .name = "Saturation",
-                .update     = saturation_display,
-                .select     = saturation_toggle,
-                .help = "Adjust saturation in current picture style.",
-                .edit_mode = EM_SHOW_LIVEVIEW,
-            },
-            {
-                .name = "Color Tone",
-                .update     = color_tone_display,
-                .select     = color_tone_toggle,
-                .help = "Adjust color tone in current picture style.",
-                .edit_mode = EM_SHOW_LIVEVIEW,
-            },
-    #ifdef FEATURE_REC_PICSTYLE
-            {
-                .name = "REC-PicStyle",
-                .priv = &picstyle_rec,
-                .max  = NUM_PICSTYLES,
-                .icon_type = IT_DICE_OFF,
-                .update     = picstyle_rec_sub_display,
-                .select     = picstyle_rec_sub_toggle,
-
-                .choices = (const char *[]) {"OFF",
-                #if NUM_PICSTYLES == 10 // 600D, 5D3...
-                "Auto",
-                #endif
-                "Standard", "Portrait", "Landscape", "Neutral", "Faithful", "Monochrome", "UserDef1", "UserDef2", "UserDef3" },
-                
-                .help = "You can use a different picture style when recording.",
-                .depends_on = DEP_MOVIE_MODE,
-            },
-    #endif
-            MENU_EOL
-        },
-    },
-    #endif
+    MENU_PLACEHOLDER("Picture Style"),
+    MENU_PLACEHOLDER("REC-PicStyle"),
     MENU_PLACEHOLDER("Auto ETTR"),
     #ifdef FEATURE_EXPO_LOCK
     {

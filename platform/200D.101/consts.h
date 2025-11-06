@@ -80,7 +80,7 @@
 // I can't see why two functions is the best way of doing it (or, one for each core??)
 // The closest 50D match I could find has the same PAL / NTSC / HDMI style strings.
 //#define LV_STRUCT_PTR 0xaf2d0
-#define NUM_PICSTYLES 10 // guess, but seems to be always 9 for old cams, 10 for new
+#define NUM_PICSTYLES 11
 
 //Replaced by CONFIG_NO_BFNT in internals.h
 //#define BFNT_CHAR_CODES             0x00000000

@@ -85,7 +85,7 @@
 
     #define HALFSHUTTER_PRESSED         0
 
-    #define NUM_PICSTYLES 10 // guess, but seems to be always 9 for old cams, 10 for new
+#define NUM_PICSTYLES 10 // Digic 6 but with 10 picstyles / single sharpness slider
 
   #define AUDIO_MONITORING_HEADPHONES_CONNECTED 0
 #define INFO_BTN_NAME               "INFO"

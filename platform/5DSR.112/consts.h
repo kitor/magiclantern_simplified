@@ -18,3 +18,5 @@
 // may save you space; this is only needed on some cams (D6 only so far).
 #define FIRMWARE_ENTRY_LEN 0x140
 #define CSTART_LEN         0xa0
+
+#define NUM_PICSTYLES 11 // Digic 6 with 11 picstyles / three sharpness sliders

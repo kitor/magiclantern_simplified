@@ -18,8 +18,6 @@ PLATFORM_ARCH = armv5te
 RESTARTSTART = 0x4b000
 ML_AUDIO_OBJ = n
 
-ML_PICSTYLE_AUTO = n
-
 ML_SRC_EXTRA_OBJS = $(BUILD_DIR)/misc.o $(BUILD_DIR)/afma.o
 #	video_hacks.o
 #	reloc.o \

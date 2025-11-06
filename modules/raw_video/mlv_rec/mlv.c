@@ -38,8 +38,6 @@ extern char *strcpy(char *dest, const char *src);
 extern char *strncpy(char *dest, const char *src, unsigned int n);
 extern const char* get_picstyle_name(int raw_picstyle);
 
-extern struct prop_picstyle_settings picstyle_settings[];
-
 void mlv_fill_lens(mlv_lens_hdr_t *hdr, uint64_t start_timestamp)
 {
     /* prepare header */
@@ -89,12 +87,12 @@ void mlv_fill_styl(mlv_styl_hdr_t *hdr, uint64_t start_timestamp)
     hdr->blockSize = sizeof(mlv_styl_hdr_t);
 
     hdr->picStyleId = lens_info.raw_picstyle;
-    hdr->contrast = lens_get_contrast();
-    hdr->sharpness = lens_get_sharpness();
-    hdr->saturation = lens_get_saturation();
-    hdr->colortone = lens_get_color_tone();
+    hdr->contrast = picstyle_get_current_contrast();
+    hdr->sharpness = picstyle_get_current_sharpness();
+    hdr->saturation = picstyle_get_current_saturation();
+    hdr->colortone = picstyle_get_current_color_tone();
 
-    strncpy((char *)hdr->picStyleName, get_picstyle_name(lens_info.raw_picstyle), sizeof(hdr->picStyleName));
+    strncpy((char *)hdr->picStyleName, picstyle_get_current_name(), sizeof(hdr->picStyleName));
 }
 
 void mlv_fill_expo(mlv_expo_hdr_t *hdr, uint64_t start_timestamp)

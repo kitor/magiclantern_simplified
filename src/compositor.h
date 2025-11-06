@@ -5,7 +5,6 @@
 #include "bmp.h"
 
 int compositor_layer_setup();
-void compositor_layer_clear();
 
 /**
  * Really D8, DX -> 6, D7 -> 8, D6 -> either 7 or 8 depending on Zico fw.

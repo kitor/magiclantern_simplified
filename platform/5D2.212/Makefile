@@ -17,8 +17,6 @@ ML_BOOT_OBJ = boot-d45.o
 #
 RESTARTSTART = 0x4E000
 
-ML_PICSTYLE_AUTO = n
-
 ML_SRC_EXTRA_OBJS = $(BUILD_DIR)/afma.o $(BUILD_DIR)/asm.o
 
 include ../Makefile

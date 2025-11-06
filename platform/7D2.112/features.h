@@ -36,6 +36,8 @@
 #define CONFIG_CRASH_LOG
 #define FEATURE_DISK_LOG
 
+#define FEATURE_PICSTYLE
+
 // explicitly disable stuff that don't work or may break things
 #undef CONFIG_AUTOBACKUP_ROM
 #undef CONFIG_ADDITIONAL_VERSION

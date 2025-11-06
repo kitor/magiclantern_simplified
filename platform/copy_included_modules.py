@@ -15,8 +15,7 @@ def main():
     for name in module_names:
         module_name = name + ".mo"
         shutil.copy(os.path.join(args.modules_src_dir, module_name),
-                    args.modules_dst_dir)
-
+                        args.modules_dst_dir)
 
 def parse_args():
     description = """

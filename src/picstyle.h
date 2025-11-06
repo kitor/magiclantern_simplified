@@ -1,38 +1,45 @@
 #ifndef _picstyle_h_
 #define _picstyle_h_
 
-int get_prop_picstyle_from_index(int index);
-int get_prop_picstyle_index(int pic_style);
+#ifdef FEATURE_PICSTYLE
 
-/* todo: move them to picstyle.c */
-const char * get_picstyle_name(int raw_picstyle);
-const char * get_picstyle_shortname(int raw_picstyle);
-
-int lens_get_sharpness(void);
-int lens_get_contrast(void);
-int lens_get_saturation(void);
-int lens_get_color_tone(void);
-
-void lens_set_sharpness(int value);
-void lens_set_contrast(int value);
-void lens_set_saturation(int value);
-void lens_set_color_tone(int value);
-
-int lens_get_from_other_picstyle_sharpness(int index);
-int lens_get_from_other_picstyle_contrast(int index);
-int lens_get_from_other_picstyle_saturation(int index);
-int lens_get_from_other_picstyle_color_tone(int index);
-
-#ifdef PROP_PICSTYLE_SETTINGS
-    #error this should no longer be in consts.h
+#if NUM_PICSTYLES > 10
+#define NUM_PICSTYLE_SLIDERS 6
+#else
+#define NUM_PICSTYLE_SLIDERS 4
 #endif
 
-#if defined(NUM_PICSTYLES)
-#if NUM_PICSTYLES == 9      /* old cameras */
-    #define PROP_PICSTYLE_SETTINGS(i) (PROP_PICSTYLE_SETTINGS_STANDARD - 1 + i)
-#elif NUM_PICSTYLES == 10   /* new cameras also have the "Auto" picture style */
-    #define PROP_PICSTYLE_SETTINGS(i) ((i) == 1 ? PROP_PICSTYLE_SETTINGS_AUTO : PROP_PICSTYLE_SETTINGS_STANDARD - 2 + i)
+// Setters for params in active picture style
+// Available only in "core" ML code
+void picstyle_set_current_sharpness(int value);
+void picstyle_set_current_contrast(int value);
+void picstyle_set_current_saturation(int value);
+void picstyle_set_current_color_tone(int value);
+#if NUM_PICSTYLE_SLIDERS == 6
+void picstyle_set_current_sharpness_fineness(int value);
+void picstyle_set_current_sharpness_threshold(int value);
 #endif
-#endif // NUM_PICSTYLES
 
-#endif
+// Used by lens.c in mvr_create_logfile
+void picstyle_mvr_log_append(char* mvr_logfile_buffer);
+
+#ifdef FEATURE_REC_PICSTYLE
+void picstyle_change_for_rec(int rec);
+#endif // FEATURE_REC_PICSTYLE
+#endif // FEATURE_PICSTYLE
+
+
+#if defined(FEATURE_PICSTYLE) || defined(MODULE)
+// Getters for params in active picture style
+// Those are available for modules too.
+
+const char * picstyle_get_current_name(void);
+int picstyle_get_current_sharpness(void);
+int picstyle_get_current_contrast(void);
+int picstyle_get_current_saturation(void);
+int picstyle_get_current_color_tone(void);
+int picstyle_get_current_sharpness_fineness(void);
+int picstyle_get_current_sharpnesst_threshold(void);
+#endif // defined(FEATURE_PICSTYLE) || defined(MODULE)
+
+#endif // _picstyle_h_

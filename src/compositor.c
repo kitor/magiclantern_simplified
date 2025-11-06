@@ -59,17 +59,6 @@ void _compositor_force_redraw()
     //refreshVrmsSurface(); // not needed as we do XimrExe() in bmp.c
 }
 
-void compositor_layer_clear()
-{
-    // abort if we draw over Canon GUI layer
-    if(_rgb_vram_layer_id == CANON_GUI_LAYER_ID)
-        return;
-
-    bzero32(rgb_vram_info->bitmap_data, BMP_VRAM_SIZE*4);
-    _compositor_force_redraw();
- }
-
-
 struct MARV *_compositor_create_layer(uint32_t bmp_w, uint32_t bmp_h)
 {
     // buffer for MARV structure
@@ -234,7 +223,7 @@ int compositor_layer_setup()
     _rgb_vram_layer_id = newLayerID;
 
     // erase buffer and force redraw
-    compositor_layer_clear();
+    rgba_buffer_clear();
     return 0;
 }
 

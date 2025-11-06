@@ -46,6 +46,10 @@
 #define FEATURE_GLOBAL_DRAW
 #define FEATURE_CROPMARKS
 
+#define CONFIG_PROP_REQUEST_CHANGE
+
+#define FEATURE_PICSTYLE
+
 // prevent ML attempting stack unwinding in some cases.
 // This does not yet work (assumes ARM, not Thumb).  Alex recommends
 // a good looking fix:

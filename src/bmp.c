@@ -269,6 +269,12 @@ void refresh_yuv_from_rgb(void)
     ml_refresh_display_needed = 0;
 }
 
+void rgba_buffer_clear()
+{
+    if (rgb_vram_info == NULL) return;
+    bzero32(rgb_vram_info->bitmap_data, BMP_VRAM_SIZE*4);
+}
+
 #if defined(CONFIG_INSTALLER)
 // Normally in tasks.c, which installer builds don't include.
 // Unused, just need it defined to build.
@@ -726,10 +732,11 @@ getfilesize_fail:
 void clrscr()
 {
     BMP_LOCK( bmp_fill( 0x0, BMP_W_MINUS, BMP_H_MINUS, BMP_TOTAL_WIDTH, BMP_TOTAL_HEIGHT ); )
-    #ifdef CONFIG_COMPOSITOR_DEDICATED_LAYER
-    // clear our layer
-    compositor_layer_clear();
+    #ifdef FEATURE_VRAM_RGBA
+    // clear RGBA buffer
+    rgba_buffer_clear();
     #endif
+
 }
 
 // this is slow, but is good for a small number of pixels :)

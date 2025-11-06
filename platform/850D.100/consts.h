@@ -127,7 +127,7 @@
 // And do fix them!
 ////////////////
 
-#define NUM_PICSTYLES 10 // guess, but seems to be always 9 for old cams, 10 for new
+#define NUM_PICSTYLES 11
 
 #define MIN_MSLEEP 11
 

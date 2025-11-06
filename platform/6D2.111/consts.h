@@ -63,7 +63,7 @@
 // See e035735e and e0357e1e, which both call a function returning this value.
 // Not sure on this one, not really tested.
 //#define LV_STRUCT_PTR 0xad2c8
-#define NUM_PICSTYLES 10 // guess, but seems to be always 9 for old cams, 10 for new
+#define NUM_PICSTYLES 11
 
 //Replaced by CONFIG_NO_BFNT in internals.h
 //#define BFNT_CHAR_CODES             0x00000000

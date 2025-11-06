@@ -381,6 +381,7 @@ ML_SRC_OBJS_00 = \
     sd.o \
     cache_hacks.o \
     patch.o \
+    picstyle.o \
     cache.o
 ML_SRC_OBJS = $(addprefix $(BUILD_DIR)/, $(ML_SRC_OBJS_00))
 
@@ -400,13 +401,6 @@ else
     endif
     ML_SRC_OBJS += $(BUILD_DIR)/$(ML_INIT_OBJ)
 endif
-
-ifeq ($(ML_PICSTYLE_AUTO), n)
-    ML_PICSTYLE_OBJ = picstyle-noauto.o
-else
-    ML_PICSTYLE_OBJ = picstyle.o
-endif
-ML_SRC_OBJS += $(BUILD_DIR)/$(ML_PICSTYLE_OBJ)
 
 ifeq ($(ML_BITRATE_OBJ), n)
     ML_BITRATE_OBJ =
