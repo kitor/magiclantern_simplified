@@ -221,16 +221,6 @@ static MENU_UPDATE_FUNC(expsim_display)
 void set_expsim(int expsim){};
 #endif
 
-/*
-void set_pic_quality(int q)
-{
-    if (q == -1) return;
-    prop_request_change(PROP_PIC_QUALITY, &q, 4);
-    prop_request_change(PROP_PIC_QUALITY2, &q, 4);
-    prop_request_change(PROP_PIC_QUALITY3, &q, 4);
-}
-*/
-
 extern unsigned lcd_sensor_shortcuts;
 
 #ifdef FEATURE_ARROW_SHORTCUTS
@@ -3924,4 +3914,3 @@ INIT_FUNC(__FILE__, tweak_init);
 #ifndef FEATURE_ARROW_SHORTCUTS
 int arrow_keys_shortcuts_active() { return 0; }
 #endif
-

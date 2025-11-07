@@ -1331,8 +1331,6 @@ void show_logo()
 void
 debug_init_stuff( void )
 {
-    //~ set_pic_quality(PICQ_RAW);
-
     #ifdef CONFIG_WB_WORKAROUND
     if (is_movie_mode())
     {

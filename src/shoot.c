@@ -3005,49 +3005,6 @@ static MENU_UPDATE_FUNC(mlu_display)
 }
 #endif // FEATURE_MLU
 
-#ifdef FEATURE_PICQ_DANGEROUS
-static MENU_UPDATE_FUNC(picq_display)
-{
-    int raw = pic_quality & 0x60000;
-    int rawsize = pic_quality & 0xF;
-    int jpegtype = pic_quality >> 24;
-    int jpegsize = (pic_quality >> 8) & 0xF;
-    MENU_SET_VALUE(
-        "%s%s%s%s%s",
-        rawsize == 1 ? "M" : rawsize == 2 ? "S" : "",
-        raw ? "RAW" : "",
-        jpegtype != 4 && raw ? "+" : "",
-        jpegtype == 4 ? "" : jpegsize == 0 ? "Large" : jpegsize == 1 ? "Med" : "Small",
-        jpegtype == 2 ? "Coarse" : jpegtype == 3 ? "Fine" : ""
-    );
-    MENU_SET_ENABLED(1);
-}
-
-static int picq_next(int p)
-{
-    switch(pic_quality)
-    {
-        case PICQ_RAW: return PICQ_MRAW;
-        case PICQ_MRAW: return PICQ_SRAW;
-        case PICQ_SRAW: return PICQ_RAW_JPG_LARGE_FINE;
-        case PICQ_RAW_JPG_LARGE_FINE: return PICQ_MRAW_JPG_LARGE_FINE;
-        case PICQ_MRAW_JPG_LARGE_FINE: return PICQ_SRAW_JPG_LARGE_FINE;
-        case PICQ_SRAW_JPG_LARGE_FINE: return PICQ_SRAW_JPG_MED_FINE;
-        case PICQ_SRAW_JPG_MED_FINE: return PICQ_SRAW_JPG_SMALL_FINE;
-        case PICQ_SRAW_JPG_SMALL_FINE: return PICQ_LARGE_FINE;
-        case PICQ_LARGE_FINE: return PICQ_MED_FINE;
-        case PICQ_MED_FINE: return PICQ_SMALL_FINE;
-    }
-    return PICQ_RAW;
-}
-
-static void picq_toggle(void* priv)
-{
-    int newp = picq_next(pic_quality);
-    set_pic_quality(newp);
-}
-#endif
-
 
 #ifdef FEATURE_EXPO_LOCK
 
@@ -3681,14 +3638,6 @@ MENU_PLACEHOLDER("Post Deflicker"),
     },
     #endif
 
-    #ifdef FEATURE_PICQ_DANGEROUS
-    {
-        .update = picq_display, 
-        .select = picq_toggle, 
-        .help = "Experimental SRAW/MRAW mode. You may get corrupted files."
-    },
-    #endif
-
     #ifdef FEATURE_VOICE_TAGS
     {
         .name = "Voice Tags", 
@@ -3699,7 +3648,7 @@ MENU_PLACEHOLDER("Post Deflicker"),
         .works_best_in = DEP_PHOTO_MODE,
     },
     #endif
-    
+
     #ifdef FEATURE_LV_3RD_PARTY_FLASH
         #ifndef FEATURE_FLASH_TWEAKS
         #error This requires FEATURE_FLASH_TWEAKS.

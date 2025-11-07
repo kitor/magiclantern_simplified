@@ -179,8 +179,6 @@
     #define FEATURE_FLASH_NOFLASH
 //~ #define FEATURE_LV_3RD_PARTY_FLASH // rebels only
 
-    // can do permanent damage, for research only!
-    //~ #define FEATURE_PICQ_DANGEROUS
 #endif
 
     #define FEATURE_SNAP_SIM
