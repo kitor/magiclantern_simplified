@@ -457,6 +457,7 @@ static void my_big_init_task()
     // into the array, so we can find first item knowing any other.
     first_task = current_task->self - ((current_task->taskId & 0xffff) - 1);
 
+
 #ifdef CONFIG_HELLO_WORLD
     hello_world();
     return;
@@ -645,6 +646,49 @@ void boot_pre_init_task()
 /* called right after Canon's init_task, while their initialization continues in background */
 void boot_post_init_task(void)
 {
+    DryosDebugMsg(0, 15, "yellow");
+
+    uint32_t tcmtr = get_tcmtr();
+    DryosDebugMsg(0, 15, "tcmtr %08x", tcmtr);
+
+    uint32_t atcm = get_atcm();
+    uint32_t btcm = get_btcm();
+    DryosDebugMsg(0, 15, "tcmtr %08x, atcm %08x, btcm %08x", tcmtr, atcm, btcm);
+
+    // Our QEMU is configured differently than hw,
+    // hw has 8 slots, qemu reports 16
+    uint32_t mpuir = get_mpuir();
+    DryosDebugMsg(0, 15, "mpuir %08x", mpuir);
+
+    // try to set slot 7 as no-exec
+    set_rgnr();
+    uint32_t rgnr = get_rgnr(); // RGNR
+    DryosDebugMsg(0, 15, "rgnr %08x", rgnr);
+
+    set_drbar();
+    uint32_t drbar = get_drbar(); // DRBAR
+    DryosDebugMsg(0, 15, "drbar %08x", drbar);
+
+    set_dracr();
+    uint32_t dracr = get_dracr(); // DRACR
+    DryosDebugMsg(0, 15, "dracr %08x", dracr);
+
+    set_drsr();
+    uint32_t drsr = get_drsr(); // DRSR
+    DryosDebugMsg(0, 15, "drsr %08x", drsr);
+    asm volatile ( "DSB" );
+    asm volatile ( "ISB" );
+    DryosDebugMsg(0, 15, "post mpu");
+
+    // jump to no-exec region
+    // this generates exception 12 // abort (prefetch)
+    extern void memmap_info(void);
+    memmap_info();
+
+    // we will never get here unless exception is handled
+    uart_printf("uart post mpu");
+
+
 #if defined(CONFIG_PLATFORM_POST_INIT)
     platform_post_init();
 #endif

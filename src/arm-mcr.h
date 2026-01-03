@@ -239,6 +239,72 @@ static u32 get_spcr(void)
     return val;
 }
 
+static void set_rgnr()
+{   u32 val = 7; // region 7
+
+    /* MPU Memory Region Number Register */
+    asm volatile ("mcr p15, 0, %0, c6, c2, 0" : : "r" (val));
+}
+
+static u32 get_rgnr(void)
+{
+    u32 val;
+
+    asm volatile ("mrc p15, 0, %0, c6, c2, 0" : "=r" (val));
+    return val;
+}
+
+
+static void set_drbar()
+{
+    u32 val = 0xfe2ab650 & 0xFFFFFF00;
+
+   /* Write to MPU Region Base Address Registers */
+    asm volatile ("mcr p15, 0, %0, c6, c1, 0" : : "r" (val));
+}
+
+static u32 get_drbar(void)
+{
+    u32 val;
+
+    asm volatile ("mrc p15, 0, %0, c6, c1, 0" : "=r" (val));
+    return val;
+}
+
+
+static void set_dracr()
+{   u32 val = 0x1021;
+
+    /* Write to MPU Region Access Control Register */
+    asm volatile ("mcr p15, 0, %0, c6, c1, 4" : : "r" (val));
+}
+
+static u32 get_dracr(void)
+{
+    u32 val;
+
+    asm volatile ("mrc p15, 0, %0, c6, c1, 4" : "=r" (val));
+    return val;
+}
+
+static void set_drsr()
+{
+    u32 val = (0b111 << 1) | 1; // = 4KB
+
+
+   /* Write to MPU Region Size and Enable Register */
+    asm volatile ("mcr p15, 0, %0, c6, c1, 2" : : "r" (val));
+}
+
+static u32 get_drsr(void)
+{
+    u32 val;
+
+    asm volatile ("mrc p15, 0, %0, c6, c1, 2" : "=r" (val));
+    return val;
+}
+
+
 #ifdef CONFIG_MMU
 static u32 get_ttbr0(void)
 {
