@@ -292,7 +292,15 @@ static void run_test()
     // log to disk as log0000.log.  This holds DryosDebugMsg() messages,
     // before sending to uart.  Holds more events than you see on uart,
     // since dm_store is more permissive than dm_print.
-    call("dumpf");
+    uint32_t tcmtr = get_tcmtr();
+    uint32_t atcm = get_atcm();
+    uint32_t btcm = get_btcm();
+    DryosDebugMsg(0, 15, "tcmtr %08x, atcm %08x, btcm %08x", tcmtr, atcm, btcm);
+    uint32_t mpuir = get_mpuir();
+    DryosDebugMsg(0, 15, "mpuir %08x", mpuir);
+    uint32_t spcr = get_spcr();
+    DryosDebugMsg(0, 15, "spcr %08x", spcr);
+    //call("dumpf");
 
 #if 0 && defined(CONFIG_200D)
     // Want to run a quick test?  You can hack it in here,

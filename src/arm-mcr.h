@@ -195,6 +195,50 @@ static u32 get_ccsidr(void)
     return ccsidr;
 }
 
+static u32 get_tcmtr(void)
+{
+    u32 tcmtr;
+
+    /* Read current CP15 TCM Type Register */
+    asm volatile ("mrc p15, 0, %0, c0, c0, 2" : "=r" (tcmtr));
+    return tcmtr;
+}
+
+static u32 get_atcm(void)
+{
+    u32 atcm;
+
+    /* Read current CP15 ATCM region register */
+    asm volatile ("mrc p15, 0, %0, c9, c1, 1" : "=r" (atcm));
+    return atcm;
+}
+
+static u32 get_btcm(void)
+{
+    u32 btcm;
+
+    /* Read current CP15 BTCM region register */
+    asm volatile ("mrc p15, 0, %0, c9, c1, 0" : "=r" (btcm));
+    return btcm;
+}
+
+static u32 get_mpuir(void)
+{
+    u32 mpuir;
+
+    /* Read current CP15 MPU Type Register */
+    asm volatile ("mrc p15, 0, %0, c0, c0, 4" : "=r" (mpuir));
+    return mpuir;
+}
+
+static u32 get_spcr(void)
+{
+    u32 val;
+
+    asm volatile ("mrc p15, 0, %0, c11, c0, 0" : "=r" (val));
+    return val;
+}
+
 #ifdef CONFIG_MMU
 static u32 get_ttbr0(void)
 {
