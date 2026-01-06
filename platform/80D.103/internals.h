@@ -8,6 +8,9 @@
 /** Digic 6 does not have bitmap font in ROM, try to load it from card **/
 #define CONFIG_NO_BFNT
 
+/* Can do limited ROM remapping using MPU */
+
+#define CONFIG_MPU
 /* has LV */
 #define CONFIG_LIVEVIEW
 

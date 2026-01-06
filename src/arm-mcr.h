@@ -195,6 +195,119 @@ static u32 get_ccsidr(void)
     return ccsidr;
 }
 
+static u32 get_tcmtr(void)
+{
+    u32 tcmtr;
+
+    /* Read current CP15 TCM Type Register */
+    asm volatile ("mrc p15, 0, %0, c0, c0, 2" : "=r" (tcmtr));
+    return tcmtr;
+}
+
+static u32 get_atcm(void)
+{
+    u32 atcm;
+
+    /* Read current CP15 ATCM region register */
+    asm volatile ("mrc p15, 0, %0, c9, c1, 1" : "=r" (atcm));
+    return atcm;
+}
+
+static u32 get_btcm(void)
+{
+    u32 btcm;
+
+    /* Read current CP15 BTCM region register */
+    asm volatile ("mrc p15, 0, %0, c9, c1, 0" : "=r" (btcm));
+    return btcm;
+}
+
+static u32 get_mpuir(void)
+{
+    u32 mpuir;
+
+    /* Read current CP15 MPU Type Register */
+    asm volatile ("mrc p15, 0, %0, c0, c0, 4" : "=r" (mpuir));
+    return mpuir;
+}
+
+
+#ifdef CONFIG_MPU
+static void set_rgnr(u32 region_id)
+{
+    if(region_id > 7) // DIGIC 6 implements 8 regions only.
+        return;
+
+    /* Write to MPU Memory Region Number Register */
+    asm volatile ("mcr p15, 0, %0, c6, c2, 0" : : "r" (region_id));
+}
+
+static u32 get_rgnr(void)
+{
+    u32 val;
+
+    /* Read MPU Memory Region Number Register */
+    asm volatile ("mrc p15, 0, %0, c6, c2, 0" : "=r" (val));
+    return val;
+}
+
+static void set_drbar(u32 addr, u32 size)
+{
+    if(size < 32) // size below 32 is "unpredictable"
+        return;
+    u32 mask = ~((size & 0xFFFFFFF0) -1);
+    u32 val = addr & mask;
+   /* Write to MPU Region Base Address Registers */
+    asm volatile ("mcr p15, 0, %0, c6, c1, 0" : : "r" (val));
+}
+
+static u32 get_drbar(void)
+{
+    u32 val;
+
+    /* Read MPU Region Base Address Registers */
+    asm volatile ("mrc p15, 0, %0, c6, c1, 0" : "=r" (val));
+    return val;
+}
+
+static void set_dracr(u32 flags)
+{
+    /* Write to MPU Region Access Control Register */
+    asm volatile ("mcr p15, 0, %0, c6, c1, 4" : : "r" (flags));
+}
+
+static u32 get_dracr(void)
+{
+    u32 val;
+
+    /* Read MPU Region Access Control Register */
+    asm volatile ("mrc p15, 0, %0, c6, c1, 4" : "=r" (val));
+    return val;
+}
+
+static void set_drsr(u32 size, u32 enable)
+{
+    u32 en = enable & 0x1;
+    if( (size < 32) && en ) // size below 32 is "unpredictable"
+        return;
+
+    u32 mask = (size & 0xFFFFFFF0) >> 3;
+    u32 val = (mask << 1) | en; // = 4KB
+
+   /* Write to MPU Region Size and Enable Register */
+    asm volatile ("mcr p15, 0, %0, c6, c1, 2" : : "r" (val));
+}
+
+static u32 get_drsr(void)
+{
+    u32 val;
+
+    /* Read MPU Region Size and Enable Register */
+    asm volatile ("mrc p15, 0, %0, c6, c1, 2" : "=r" (val));
+    return val;
+}
+#endif //CONFIG_MPU
+
 #ifdef CONFIG_MMU
 static u32 get_ttbr0(void)
 {

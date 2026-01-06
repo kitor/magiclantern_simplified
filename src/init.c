@@ -642,9 +642,91 @@ void boot_pre_init_task()
 #endif
 }
 
+#ifdef CONFIG_MPU
+// 0xfe2ab650 is entrypoint to memmap_info() on 80D
+#define MPU_PATCH_REGION 7
+#define MPU_PATCH_ADDRESS 0xfe2ab650
+#define MPU_PATCH_SIZE_BYTES 32
+
+void __attribute__((noreturn,noinline,naked,aligned(4)))memmap_info_hook(void)
+{
+    asm(
+        "push { r0-r11, lr }\n"
+    );
+
+    uart_printf(" === memmap_info_hook test ===\n");
+
+    asm ("pop { r0-r11, lr }");
+
+    // Unpatch memory, just for PoC - since we jump back to patched region.
+    // Sets region size to 0 and disables it
+    set_rgnr(MPU_PATCH_REGION);
+    set_drsr(0, 0);
+
+    // jump back to memmap_info code
+    asm ("ldr pc, =0xfe2ab651");
+}
+
+static void __attribute__((noreturn)) prefetch_abort_exception_handler(void)
+{
+    // Just PoC handler that will immediately forwared executiion to
+    // memmap_info_hook on every exception
+
+    // True implementation should examine LR to see if it is on list of patches
+    // else forward this back to stock Canon handler.
+
+    // subs is supposed to restore CPSR
+    asm __volatile__(
+        "ldr lr, =memmap_info_hook\n"
+        "subs pc, lr, #0\n"
+        );
+
+    // Unreachable.
+    while(1)
+        ;
+}
+#endif
+
 /* called right after Canon's init_task, while their initialization continues in background */
 void boot_post_init_task(void)
 {
+#ifdef CONFIG_MPU
+    uart_printf("MPU remap test\nin boot_post_init_task\n");
+
+    // change exception_abort handler to ours
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Warray-bounds"
+    *((uint32_t *)0x28) = ((uint32_t)prefetch_abort_exception_handler | 0x1);
+    #pragma GCC diagnostic pop
+
+    uart_printf("Digic 6 TCM info\n");
+    uart_printf("ntcmtr %08x, atcm %08x, btcm %08x\n", get_tcmtr(), get_atcm(), get_btcm());
+
+    // Our QEMU is configured differently than hw (8 slots), qemu reports 16
+    uart_printf("MPUIR: %08x\n", get_mpuir());
+
+    uart_printf("Configure MPU for our patch\n");
+    set_rgnr(MPU_PATCH_REGION);
+    set_drbar(MPU_PATCH_ADDRESS, MPU_PATCH_SIZE_BYTES);
+    set_dracr(0x1021); // P:-- U:--; Inner Write-back, write-allocate; Outer Non-cacheable; Non-shared; Execute never, Enable
+    set_drsr(MPU_PATCH_SIZE_BYTES, 1);
+
+    uart_printf("MPU region config:\n");
+    uart_printf("rgnr %08x drbar %08x dracr %08x drsr %08x\n",
+        get_rgnr(), get_drbar(), get_dracr(), get_drsr()
+    );
+
+    uart_printf("Now call into patched code\n");
+
+    extern void memmap_info(void);
+    // this will generate exception 12 // abort (prefetch)
+    // and thus our prefetch_abort_exception_handler should fire
+    memmap_info();
+
+    // We will get back here only if our patch succeeded.
+    uart_printf("returned from patched memmap_info\n");
+#endif
+
 #if defined(CONFIG_PLATFORM_POST_INIT)
     platform_post_init();
 #endif
