@@ -704,6 +704,11 @@ void boot_post_init_task(void)
 
     // Our QEMU is configured differently than hw (8 slots), qemu reports 16
     uart_printf("MPUIR: %08x\n", get_mpuir());
+    
+    uart_printf("DBGDIDR: %08x\n", get_dbgdidr());
+    uart_printf("DBGDRAR: %08x\n", get_dbgdrar());
+    uart_printf("DBGDSAR: %08x\n", get_dbgdsar());
+    uart_printf("DBGDSCR: %08x\n", get_dbgdscr());
 
     uart_printf("Configure MPU for our patch\n");
     set_rgnr(MPU_PATCH_REGION);

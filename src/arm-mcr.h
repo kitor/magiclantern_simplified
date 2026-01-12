@@ -231,6 +231,43 @@ static u32 get_mpuir(void)
     return mpuir;
 }
 
+// debug interface
+static u32 get_dbgdidr(void)
+{
+    u32 val;
+
+    /* Read DBGDIDR Register */
+    asm volatile ("mrc p14, 0, %0, c0, c0, 0 ;" : "=r" (val));
+    return val;
+}
+
+static u32 get_dbgdrar(void)
+{
+    u32 val;
+
+    /* Read DBGDRAR Register */
+    asm volatile ("mrc p14, 0, %0, c1, c0, 0 ;" : "=r" (val));
+    return val;
+}
+
+
+static u32 get_dbgdsar(void)
+{
+    u32 val;
+
+    /* Read DBGDSAR Register */
+    asm volatile ("mrc p14, 0, %0, c2, c0, 0 ;" : "=r" (val));
+    return val;
+}
+
+static u32 get_dbgdscr(void)
+{
+    u32 val;
+
+    /* Read DBGDSCR Register */
+    asm volatile ("mrc p14, 0, %0, c0, c1, 0 ;" : "=r" (val));
+    return val;
+}
 
 #ifdef CONFIG_MPU
 static void set_rgnr(u32 region_id)
