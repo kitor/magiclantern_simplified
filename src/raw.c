@@ -727,7 +727,7 @@ static int raw_lv_buffer_size = 0;
 enum { M50_PROBE_IDLE = 0, M50_PROBE_WAIT, M50_PROBE_DONE };
 
 static int m50_probe_state    = M50_PROBE_IDLE;
-static int m50_probe_height   = M50_MIN_RAW_HEIGHT;
+static int m50_probe_height   = 1160;
 static int m50_probe_start_ms = 0;
 static int m50_probe_mode_key = -1;
 
@@ -888,9 +888,16 @@ static int raw_lv_get_resolution(int* width, int* height)
     /* DIGIC 8: hardcoded pitch, dynamic height via zero-sentinel probe.
      * Width is always 2096 pixels (3668 bytes / line, 14-bit packed).
      * Height is probed per video mode — Canon may output more lines in
-     * 4K crop mode than in 1080p.  Falls back to 838 (the known minimum
-     * confirmed via RAM dump comparison). */
+     * 4K crop mode than in 1080p.  Falls back to 1160 (standard 1080p). */
     *width = M50_RAW_PITCH * 8 / 14;   /* 2096 */
+
+    /* If recording is in progress, never re-probe, zero memory, or change height!
+     * Changing height mid-recording terminates the clip early via raw_lv_settings_still_valid. */
+    if (RECORDING)
+    {
+        *height = m50_probe_height;
+        return 1;
+    }
 
     /* Detect video-mode changes and re-probe */
     int mk = m50_video_mode_key();
@@ -2951,6 +2958,15 @@ void raw_lv_release()
 
 void raw_lv_request_bpp(int bpp)
 {
+#ifdef CONFIG_M50
+    /* DIGIC 8 M50: sensor readout is always 14-bit packed into RAM.
+     * Bit-depth reduction (10/12-bit) is done purely in software
+     * by the mlv_lite repacker. Attempting to write to 0xd0008094
+     * or changing raw_info.bits_per_pixel causes bus errors and
+     * breaks raw_update_params. */
+    (void)bpp;
+    return;
+#endif
     take_semaphore(raw_sem, 0);
 
     /* raw bit depth setup is done from PACK32_MODE register (mask 0x131) */

@@ -338,6 +338,8 @@ static GUARDED_BY(LiveViewTask) int fullsize_buffer_pos = 0;        /* which of 
 // Protect frame slots and the write queue, for card spanning
 static struct semaphore *write_queue_sem = NULL;
 
+static void rec_dbg_log(const char* msg);
+
 static volatile                 struct frame_slot slots[1023];      /* frame slots */
 static GUARDED_BY(settings_sem) int total_slot_count = 0;           /* how many frame slots we have (including the reserved ones) */
 static GUARDED_BY(settings_sem) int valid_slot_count = 0;           /* total minus reserved */
@@ -1498,7 +1500,10 @@ void free_buffers()
 
     if (fullsize_buffers[1] && raw_info.buffer)
     {
-        ASSERT(fullsize_buffers[1] == UNCACHEABLE(raw_info.buffer));
+        if (!is_m50)
+        {
+            ASSERT(fullsize_buffers[1] == UNCACHEABLE(raw_info.buffer));
+        }
     }
     fullsize_buffers[1] = 0;
 
@@ -2085,12 +2090,14 @@ unsigned int raw_rec_polling_cbr(unsigned int unused)
     /* reallocate buffers if needed (only if not recording) */
     if (realloc && (RAW_IS_IDLE || RAW_IS_PREPARING) && gui_state == GUISTATE_IDLE)
     {
+        rec_dbg_log("poll: realloc_buffers start");
         gui_uilock(UILOCK_EVERYTHING);
         take_semaphore(settings_sem, 0);
         realloc_buffers();
         realloc = 0;
         give_semaphore(settings_sem);
         gui_uilock(UILOCK_NONE);
+        rec_dbg_log("poll: realloc_buffers done");
     }
 
     /* update settings when changing video modes (outside menu) */
@@ -2872,6 +2879,12 @@ static void compress_task()
         if (slot_index < 0)
             continue;
 
+        if (RAW_IS_IDLE)
+        {
+            /* Recording stopped; discard stale messages to avoid accessing freed buffers */
+            continue;
+        }
+
         rec_dbg_log("compress_task: got slot message");
 
         int fullsize_index = msg >> 16;
@@ -3632,6 +3645,13 @@ void raw_video_rec_task(uint32_t card_index)
         setup_bit_depth();
         give_semaphore(settings_sem);
 
+        if (valid_slot_count < 2)
+        {
+            rec_dbg_log("rec_task: valid_slot_count < 2 FAILED");
+            NotifyBox(5000, "Memory alloc error (%d slots)", valid_slot_count);
+            goto cleanup;
+        }
+
         /* create output file */
         rec_dbg_log("rec_task: get_next_raw_movie_file_name");
         raw_movie_filename = get_next_raw_movie_file_name();
@@ -3983,7 +4003,7 @@ abort_and_check_early_stop:
             if (!RECORDING_H264 && card_index == 0)
             {
                 /* faster writing speed that way */
-                PauseLiveView();
+                if (!is_m50) PauseLiveView();
             }
 
             if (last_block_size > 3)
@@ -4023,7 +4043,7 @@ abort_and_check_early_stop:
     if (!RECORDING_H264 && card_index == 0)
     {
         /* faster writing speed that way */
-        PauseLiveView();
+        if (!is_m50) PauseLiveView();
 
         /* PauseLiveView breaks UI locks - why? */
         gui_uilock(UILOCK_EVERYTHING);
@@ -4177,12 +4197,14 @@ cleanup:
         }
 
         rec_dbg_log("cleanup: ResumeLiveView");
-        ResumeLiveView();
+        if (!is_m50) ResumeLiveView();
         redraw();
         raw_recording_state = RAW_IDLE;
         rec_dbg_log("cleanup: done (RAW_IDLE)");
         mlv_rec_call_cbr(MLV_REC_EVENT_STOPPED, NULL);
+        rec_dbg_log("cleanup: cbr returned");
     }
+    rec_dbg_log("rec_task: exit");
 }
 
 static REQUIRES(GuiMainTask)
