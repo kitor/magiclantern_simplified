@@ -71,10 +71,22 @@ void mlv_fill_wbal(mlv_wbal_hdr_t *hdr, uint64_t start_timestamp)
     hdr->blockSize = sizeof(mlv_wbal_hdr_t);
 
     hdr->wb_mode = lens_info.wb_mode;
-    hdr->kelvin = lens_info.kelvin;
-    hdr->wbgain_r = lens_info.WBGain_R;
-    hdr->wbgain_g = lens_info.WBGain_G;
-    hdr->wbgain_b = lens_info.WBGain_B;
+    hdr->kelvin = (lens_info.wb_mode == WB_KELVIN && lens_info.kelvin) ? lens_info.kelvin : (lens_info.kelvin ? lens_info.kelvin : 5500);
+    if (lens_info.wb_mode == WB_CUSTOM && lens_info.WBGain_R && lens_info.WBGain_G && lens_info.WBGain_B)
+    {
+        hdr->wbgain_r = lens_info.WBGain_R;
+        hdr->wbgain_g = lens_info.WBGain_G;
+        hdr->wbgain_b = lens_info.WBGain_B;
+    }
+    else
+    {
+        /* In AWB or Preset WB, writing 0 signals to MLV App and DaVinci Resolve
+         * to compute proper white balance from Kelvin and the camera matrix,
+         * avoiding green tint caused by uninitialized garbage gains. */
+        hdr->wbgain_r = 0;
+        hdr->wbgain_g = 0;
+        hdr->wbgain_b = 0;
+    }
     hdr->wbs_gm = lens_info.wbs_gm;
     hdr->wbs_ba = lens_info.wbs_ba;
 }
