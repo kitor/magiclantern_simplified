@@ -2925,7 +2925,7 @@ static void compress_task()
         }
         else if (is_m50 && output_format == OUTPUT_12BIT_UNCOMPRESSED)
         {
-            const uint8_t *src_base = (const uint8_t*)UNCACHEABLE(fullSizeBuffer);
+            const uint8_t *src_base = (const uint8_t*)fullSizeBuffer;
             uint8_t *dst_base = (uint8_t*)out_ptr;
             int src_skip = (skip_y/2*2) * raw_info.pitch + ((skip_x + 7)/8) * 14;
             int dst_stride = res_x * 12 / 8;
@@ -2938,7 +2938,7 @@ static void compress_task()
         }
         else if (is_m50 && output_format == OUTPUT_10BIT_UNCOMPRESSED)
         {
-            const uint8_t *src_base = (const uint8_t*)UNCACHEABLE(fullSizeBuffer);
+            const uint8_t *src_base = (const uint8_t*)fullSizeBuffer;
             uint8_t *dst_base = (uint8_t*)out_ptr;
             int src_skip = (skip_y/2*2) * raw_info.pitch + ((skip_x + 7)/8) * 14;
             int dst_stride = res_x * 10 / 8;
