@@ -4280,6 +4280,9 @@ unsigned int raw_rec_keypress_cbr(unsigned int key)
     
     /* ... or SET on 5D2/50D */
     if (cam_50d || cam_5d2) rec_key_pressed = (key == MODULE_KEY_PRESS_SET);
+
+    /* ... or INFO on M50 */
+    if (is_m50) rec_key_pressed = (key == MODULE_KEY_INFO);
     
     if (rec_key_pressed)
     {
