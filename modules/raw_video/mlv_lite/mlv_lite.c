@@ -2726,6 +2726,24 @@ static void edmac_cbr_w(void *ctx)
     }
 }
 
+/* File-based crash breadcrumbs for M50 raw video bring-up */
+extern void dcache_clean(uint32_t addr, uint32_t size);
+static int rec_dbg_step = 100;
+static void rec_dbg_log(const char* msg)
+{
+    if (!is_m50) return;
+    char fname[40];
+    int step = rec_dbg_step++;
+    snprintf(fname, sizeof(fname), "B:/REC%03d.TXT", step);
+    FILE* f = FIO_CreateFile(fname);
+    if (f) {
+        char buf[120];
+        int len = snprintf(buf, sizeof(buf), "rec%d: %s\n", step, msg);
+        FIO_WriteFile(f, buf, len);
+        FIO_CloseFile(f);
+    }
+}
+
 /* Software bit-repackers for DIGIC 8 (which lacks PACK32_MODE EDMAC hardware).
  * Converts 14-bit packed sensor samples into standard 12-bit or 10-bit bitstreams. */
 static void FAST repack_14_to_12(uint8_t *dst, const uint8_t *src, int num_pixels)
@@ -2805,7 +2823,7 @@ static void compress_task()
         if (msg == (uint32_t) INT_MAX)
         {
             /* start recording */
-
+            rec_dbg_log("compress_task: got INT_MAX");
             if (is_m50)
             {
                 /* M50: ResLock (CreateResLockEntry) returns NULL on DIGIC 8.
@@ -2830,7 +2848,7 @@ static void compress_task()
         if (msg == (uint32_t) INT_MIN)
         {
             /* stop_recording */
-
+            rec_dbg_log("compress_task: got INT_MIN");
             if (is_m50)
             {
                 printf("M50: recording stop.\n");
@@ -2853,6 +2871,8 @@ static void compress_task()
         int slot_index = msg & 0xFFFF;
         if (slot_index < 0)
             continue;
+
+        rec_dbg_log("compress_task: got slot message");
 
         int fullsize_index = msg >> 16;
 
@@ -2925,6 +2945,7 @@ static void compress_task()
         }
         else if (is_m50 && output_format == OUTPUT_12BIT_UNCOMPRESSED)
         {
+            rec_dbg_log("compress: 12bit start");
             const uint8_t *src_base = (const uint8_t*)fullSizeBuffer;
             uint8_t *dst_base = (uint8_t*)out_ptr;
             int src_skip = (skip_y/2*2) * raw_info.pitch + ((skip_x + 7)/8) * 14;
@@ -2935,9 +2956,13 @@ static void compress_task()
                 uint8_t *dst_row = dst_base + y * dst_stride;
                 repack_14_to_12(dst_row, src_row, res_x);
             }
+            dcache_clean((uint32_t)dst_base, res_y * dst_stride);
+            frame_fake_edmac_check(slot_index);
+            rec_dbg_log("compress: 12bit done");
         }
         else if (is_m50 && output_format == OUTPUT_10BIT_UNCOMPRESSED)
         {
+            rec_dbg_log("compress: 10bit start");
             const uint8_t *src_base = (const uint8_t*)fullSizeBuffer;
             uint8_t *dst_base = (uint8_t*)out_ptr;
             int src_skip = (skip_y/2*2) * raw_info.pitch + ((skip_x + 7)/8) * 14;
@@ -2948,6 +2973,9 @@ static void compress_task()
                 uint8_t *dst_row = dst_base + y * dst_stride;
                 repack_14_to_10(dst_row, src_row, res_x);
             }
+            dcache_clean((uint32_t)dst_base, res_y * dst_stride);
+            frame_fake_edmac_check(slot_index);
+            rec_dbg_log("compress: 10bit done");
         }
         else
         {
@@ -3081,6 +3109,7 @@ void process_frame(int next_fullsize_buffer_pos)
     /* for some reason, compression cannot be started from vsync */
     /* let's delegate it to another task */
     ASSERT(compress_mq);
+    rec_dbg_log("process_frame: posting to compress_mq");
     msg_queue_post(compress_mq, capture_slot | (next_fullsize_buffer_pos << 16));
 
     /* advance to next frame */
@@ -3578,34 +3607,45 @@ void raw_video_rec_task(uint32_t card_index)
         }
 
         /* disable Canon's powersaving (30 min in LiveView) */
+        rec_dbg_log("rec_task: powersave_prohibit");
         powersave_prohibit();
         /* wait for two frames to be sure everything is refreshed */
+        rec_dbg_log("rec_task: wait_lv_frames");
         wait_lv_frames(2);
 
         /* detect raw parameters (geometry, black level etc) */
         raw_set_dirty();
+        rec_dbg_log("rec_task: raw_update_params");
         if (!raw_update_params())
         {
+            rec_dbg_log("rec_task: raw_update_params FAILED");
             NotifyBox(5000, "Raw detect error");
             goto cleanup;
         }
 
+        rec_dbg_log("rec_task: update_resolution_params");
         take_semaphore(settings_sem, 0);
         update_resolution_params();
+        rec_dbg_log("rec_task: setup_buffers");
         setup_buffers();
+        rec_dbg_log("rec_task: setup_bit_depth");
         setup_bit_depth();
         give_semaphore(settings_sem);
 
         /* create output file */
+        rec_dbg_log("rec_task: get_next_raw_movie_file_name");
         raw_movie_filename = get_next_raw_movie_file_name();
         if (raw_movie_filename == NULL)
         {
+            rec_dbg_log("rec_task: get_next_raw_movie_file_name FAILED");
             goto cleanup;
         }
         strcpy(chunk_filename[card_index], raw_movie_filename);
+        rec_dbg_log("rec_task: FIO_CreateFile");
         f = FIO_CreateFile(raw_movie_filename);
         if (!f)
         {
+            rec_dbg_log("rec_task: FIO_CreateFile FAILED");
             NotifyBox(5000, "File create error");
             goto cleanup;
         }
@@ -3613,13 +3653,17 @@ void raw_video_rec_task(uint32_t card_index)
         /* Need to start the recording of audio before the init of the mlv chunk */
         mlv_rec_call_cbr(MLV_REC_EVENT_STARTING, NULL);
 
+        rec_dbg_log("rec_task: init_mlv_chunk_headers");
         init_mlv_chunk_headers(&raw_info);
+        rec_dbg_log("rec_task: write_mlv_chunk_headers");
         written_total[card_index] = written_chunk[card_index] = write_mlv_chunk_headers(f, mlv_chunk, card_index);
         if (!written_chunk[card_index])
         {
+            rec_dbg_log("rec_task: write_mlv_chunk_headers FAILED");
             NotifyBox(5000, "Card Full");
             goto cleanup;
         }
+        rec_dbg_log("rec_task: hack_liveview");
         hack_liveview(0);
         liveview_hacked = 1;
 
@@ -3631,17 +3675,22 @@ void raw_video_rec_task(uint32_t card_index)
 
         int fps = fps_get_current_x1000();
         if (fps == 0)
+        {
+            rec_dbg_log("rec_task: fps is 0 FAILED");
             goto cleanup;
+        }
 
         /* signal start of recording to the compression task */
         // FIXME SJE let's not use INT_MAX as a signal with meaning,
         // it's lazy and deceptive.  We should probably use an enum instead.
+        rec_dbg_log("rec_task: post INT_MAX to compress_mq");
         msg_queue_post(compress_mq, INT_MAX);
 
         /* fake recording status, to integrate with other ml stuff (e.g. hdr video */
         set_recording_custom(CUSTOM_RECORDING_RAW);
 
         /* this will enable the vsync CBR and the other task(s) */
+        rec_dbg_log("rec_task: set state RAW_RECORDING");
         raw_recording_state = pre_record ? RAW_PRE_RECORDING : RAW_RECORDING;
     }
     else if (card_index == 1)
@@ -4084,8 +4133,12 @@ abort_and_check_early_stop:
     }
 
 cleanup:
+    rec_dbg_log("cleanup: entry");
     if (f)
+    {
+        rec_dbg_log("cleanup: finish_chunk");
         finish_chunk(f, card_index);
+    }
     if (!written_total[card_index]
         && raw_movie_filename != NULL)
     {
@@ -4096,7 +4149,9 @@ cleanup:
     if (card_index == 0) // avoid cleaning up twice on dual slot cams
     {
         take_semaphore(settings_sem, 0);
+        rec_dbg_log("cleanup: free_buffers");
         free_buffers();
+        rec_dbg_log("cleanup: restore_bit_depth");
         restore_bit_depth();
         give_semaphore(settings_sem);
 
@@ -4121,9 +4176,11 @@ cleanup:
             printf("H.264 stopped.\n");
         }
 
+        rec_dbg_log("cleanup: ResumeLiveView");
         ResumeLiveView();
         redraw();
         raw_recording_state = RAW_IDLE;
+        rec_dbg_log("cleanup: done (RAW_IDLE)");
         mlv_rec_call_cbr(MLV_REC_EVENT_STOPPED, NULL);
     }
 }
@@ -4139,6 +4196,7 @@ void raw_start_stop()
     }
     else
     {
+        rec_dbg_log("raw_start_stop: Starting raw recording");
         printf("Starting raw recording...\n");
         /* raw_rec_task will change state to RAW_PREPARING */
         gui_stop_menu();
@@ -4760,7 +4818,8 @@ static unsigned int raw_rec_init()
     if (is_card_spanning_possible)
         write_queue_sem = create_named_semaphore("queue_sem", SEM_CREATE_UNLOCKED);
 
-    ASSERT(((uint32_t)task_create("compress_task", 0x0F, 0x1000, compress_task, (void*)0) & 1) == 0);
+    int compress_prio = is_m50 ? 0x1A : 0x0F;
+    ASSERT(((uint32_t)task_create("compress_task", compress_prio, 0x1000, compress_task, (void*)0) & 1) == 0);
 
     return 0;
 }
