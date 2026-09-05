@@ -2060,7 +2060,7 @@ unsigned int raw_rec_polling_cbr(unsigned int unused)
     current_state ^= (video_mode_fps << 16);
     current_state ^= (video_mode_crop << 24);
 
-    if (current_state != prev_state)
+    if (current_state != prev_state || (!shoot_mem_suite && !srm_mem_suite && raw_video_active))
     {
         realloc = 1;
     }
