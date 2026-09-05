@@ -2726,6 +2726,67 @@ static void edmac_cbr_w(void *ctx)
     }
 }
 
+/* Software bit-repackers for DIGIC 8 (which lacks PACK32_MODE EDMAC hardware).
+ * Converts 14-bit packed sensor samples into standard 12-bit or 10-bit bitstreams. */
+static void FAST repack_14_to_12(uint8_t *dst, const uint8_t *src, int num_pixels)
+{
+    /* 4 pixels: 7 bytes 14-bit input -> 6 bytes 12-bit output */
+    int chunks = num_pixels / 4;
+    for (int i = 0; i < chunks; i++)
+    {
+        uint32_t s0 = src[0];
+        uint32_t s1 = src[1];
+        uint32_t s2 = src[2];
+        uint32_t s3 = src[3];
+        uint32_t s4 = src[4];
+        uint32_t s5 = src[5];
+        uint32_t s6 = src[6];
+        src += 7;
+
+        uint32_t p0 = (s0 | ((s1 & 0x3F) << 8)) >> 2;
+        uint32_t p1 = ((s1 >> 6) | (s2 << 2) | ((s3 & 0x0F) << 10)) >> 2;
+        uint32_t p2 = ((s3 >> 4) | (s4 << 4) | ((s5 & 0x03) << 12)) >> 2;
+        uint32_t p3 = ((s5 >> 2) | (s6 << 6)) >> 2;
+
+        dst[0] = p0;
+        dst[1] = (p0 >> 8) | ((p1 & 0x0F) << 4);
+        dst[2] = p1 >> 4;
+        dst[3] = p2;
+        dst[4] = (p2 >> 8) | ((p3 & 0x0F) << 4);
+        dst[5] = p3 >> 4;
+        dst += 6;
+    }
+}
+
+static void FAST repack_14_to_10(uint8_t *dst, const uint8_t *src, int num_pixels)
+{
+    /* 4 pixels: 7 bytes 14-bit input -> 5 bytes 10-bit output */
+    int chunks = num_pixels / 4;
+    for (int i = 0; i < chunks; i++)
+    {
+        uint32_t s0 = src[0];
+        uint32_t s1 = src[1];
+        uint32_t s2 = src[2];
+        uint32_t s3 = src[3];
+        uint32_t s4 = src[4];
+        uint32_t s5 = src[5];
+        uint32_t s6 = src[6];
+        src += 7;
+
+        uint32_t p0 = (s0 | ((s1 & 0x3F) << 8)) >> 4;
+        uint32_t p1 = ((s1 >> 6) | (s2 << 2) | ((s3 & 0x0F) << 10)) >> 4;
+        uint32_t p2 = ((s3 >> 4) | (s4 << 4) | ((s5 & 0x03) << 12)) >> 4;
+        uint32_t p3 = ((s5 >> 2) | (s6 << 6)) >> 4;
+
+        dst[0] = p0;
+        dst[1] = (p0 >> 8) | ((p1 & 0x3F) << 2);
+        dst[2] = (p1 >> 6) | ((p2 & 0x0F) << 4);
+        dst[3] = (p2 >> 4) | ((p3 & 0x03) << 6);
+        dst[4] = p3 >> 2;
+        dst += 5;
+    }
+}
+
 static void compress_task()
 {
     ASSERT(compress_mq == 0);
@@ -2860,6 +2921,32 @@ static void compress_task()
             if (compressed_size > 0)
             {
                 measured_compression_ratio = (compressed_size/128) * 100 / (frame_size_uncompressed/128);
+            }
+        }
+        else if (is_m50 && output_format == OUTPUT_12BIT_UNCOMPRESSED)
+        {
+            const uint8_t *src_base = (const uint8_t*)UNCACHEABLE(fullSizeBuffer);
+            uint8_t *dst_base = (uint8_t*)out_ptr;
+            int src_skip = (skip_y/2*2) * raw_info.pitch + ((skip_x + 7)/8) * 14;
+            int dst_stride = res_x * 12 / 8;
+            for (int y = 0; y < res_y; y++)
+            {
+                const uint8_t *src_row = src_base + src_skip + y * raw_info.pitch;
+                uint8_t *dst_row = dst_base + y * dst_stride;
+                repack_14_to_12(dst_row, src_row, res_x);
+            }
+        }
+        else if (is_m50 && output_format == OUTPUT_10BIT_UNCOMPRESSED)
+        {
+            const uint8_t *src_base = (const uint8_t*)UNCACHEABLE(fullSizeBuffer);
+            uint8_t *dst_base = (uint8_t*)out_ptr;
+            int src_skip = (skip_y/2*2) * raw_info.pitch + ((skip_x + 7)/8) * 14;
+            int dst_stride = res_x * 10 / 8;
+            for (int y = 0; y < res_y; y++)
+            {
+                const uint8_t *src_row = src_base + src_skip + y * raw_info.pitch;
+                uint8_t *dst_row = dst_base + y * dst_stride;
+                repack_14_to_10(dst_row, src_row, res_x);
             }
         }
         else
