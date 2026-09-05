@@ -135,6 +135,44 @@ static int state_matrix[num_states][num_inputs];
 #endif
 
 static int (*StateTransition)(void*,int,int,int,int) = 0;
+
+/* M50: lightweight EVF_STATE transition logger.
+ * Ring buffer captures the last 64 transitions so we can dump them
+ * to card if something goes wrong (Error 70 diagnosis). */
+#ifdef CONFIG_M50
+#define EVF_LOG_SIZE 64
+static struct {
+    uint32_t old_state;
+    uint32_t input;
+    uint32_t new_state;
+    uint32_t tick;
+} evf_log[EVF_LOG_SIZE];
+static volatile int evf_log_idx = 0;
+static volatile int evf_log_count = 0;
+
+/* Call from anywhere to dump the EVF transition log to card */
+void m50_dump_evf_log(void)
+{
+    FILE *f = FIO_CreateFile("B:/EVFLOG.TXT");
+    if (!f) return;
+    char line[80];
+    int len = snprintf(line, sizeof(line), "EVF_STATE log (%d transitions)\n", evf_log_count);
+    FIO_WriteFile(f, line, len);
+    int start = (evf_log_count > EVF_LOG_SIZE) ? evf_log_idx : 0;
+    int count = (evf_log_count > EVF_LOG_SIZE) ? EVF_LOG_SIZE : evf_log_count;
+    for (int i = 0; i < count; i++)
+    {
+        int idx = (start + i) % EVF_LOG_SIZE;
+        len = snprintf(line, sizeof(line), "%4d: s%d i%d -> s%d  t=%u\n",
+            (evf_log_count > EVF_LOG_SIZE) ? (evf_log_count - EVF_LOG_SIZE + i) : i,
+            evf_log[idx].old_state, evf_log[idx].input,
+            evf_log[idx].new_state, evf_log[idx].tick);
+        FIO_WriteFile(f, line, len);
+    }
+    FIO_CloseFile(f);
+}
+#endif
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-variable"
 // without this, warns on unused old_state, in some configurations
@@ -198,7 +236,30 @@ static int FAST stateobj_lv_spy(struct state_object * self, int x, int input, in
     }
 #endif
 
+#ifdef CONFIG_M50
+    /* Log EVF_STATE transitions to ring buffer for diagnosis */
+    if (self == EVF_STATE)
+    {
+        int idx = evf_log_idx;
+        evf_log[idx].old_state = old_state;
+        evf_log[idx].input = input;
+        evf_log[idx].tick = GET_DIGIC_TIMER();
+        /* new_state will be filled after StateTransition */
+        evf_log_idx = (idx + 1) % EVF_LOG_SIZE;
+        evf_log_count++;
+    }
+#endif
+
     int ans = StateTransition(self, x, input, z, t);
+
+#ifdef CONFIG_M50
+    /* Fill in new_state after transition */
+    if (self == EVF_STATE)
+    {
+        int prev_idx = (evf_log_idx + EVF_LOG_SIZE - 1) % EVF_LOG_SIZE;
+        evf_log[prev_idx].new_state = self->current_state;
+    }
+#endif
 
 #ifdef CONFIG_550D
     if (self == DISPLAY_STATE)

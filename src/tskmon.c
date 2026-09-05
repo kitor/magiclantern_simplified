@@ -192,8 +192,8 @@ static void tskmon_stack_checker(struct task *next_task)
             return;
         #endif
 
-        #if defined(CONFIG_200D) || defined(CONFIG_6D2)
-        // this might be CONFIG_DIGIC_VII
+        #if defined(CONFIG_200D) || defined(CONFIG_6D2) || defined(CONFIG_M50)
+        // this might be CONFIG_DIGIC_VII / CONFIG_DIGIC_VIII
         if (streq(task_name, "RTCMgr") && free > 128)
             return; // RTCMgr uses 796 of 1024, 228 free
         if (streq(task_name, "idle") && free > 64)

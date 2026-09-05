@@ -27,6 +27,13 @@ function logger_metatable.__call(self,filename,listener)
     t.filename = filename
     t.listener = listener
     t.logfile = io.open(filename, "a")
+    if not t.logfile then
+        -- try with A:/ prefix (DryOS absolute path)
+        t.logfile = io.open("A:/" .. filename, "a")
+    end
+    if not t.logfile then
+        error("logger: cannot open '" .. filename .. "' for writing")
+    end
     t.logfile:setvbuf("line")
     local calling_filename = debug.getinfo(2,"S").short_src
     local date = dryos.date

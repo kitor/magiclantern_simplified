@@ -1661,9 +1661,10 @@ static void mlv_play_stop_fps_timer()
 
 static void mlv_play_start_fps_timer(uint32_t fps_nom, uint32_t fps_denom)
 {
-    if (fps_nom == 0 || fps_nom < 2 * fps_denom)
+    if (fps_nom == 0 || fps_nom < 2 * fps_denom ||
+        (fps_denom > 0 && fps_nom / fps_denom > 240))
     {
-        /* fps too low or bad metadata? play at 24 fps */
+        /* fps too low, too high, or bad metadata? play at 24 fps */
         fps_denom = MAX(fps_denom, 1);
         fps_nom = 24 * fps_denom;
     }

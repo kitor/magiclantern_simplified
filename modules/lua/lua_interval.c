@@ -13,6 +13,8 @@
 
 #include "lua_common.h"
 
+#ifdef FEATURE_INTERVALOMETER
+
 static int luaCB_interval_index(lua_State * L)
 {
     LUA_PARAM_STRING_OPTIONAL(key, 2, "");
@@ -73,3 +75,15 @@ static const luaL_Reg intervallib[] =
 };
 
 LUA_LIB(interval)
+
+#else /* !FEATURE_INTERVALOMETER */
+
+/* Provide a minimal interval library that does nothing */
+static int luaCB_interval_index(lua_State * L) { return 0; }
+static int luaCB_interval_newindex(lua_State * L) { return 0; }
+static int luaCB_interval_stop(lua_State * L) { return 0; }
+static const char * lua_interval_fields[] = { NULL };
+static const luaL_Reg intervallib[] = { { NULL, NULL } };
+LUA_LIB(interval)
+
+#endif /* FEATURE_INTERVALOMETER */

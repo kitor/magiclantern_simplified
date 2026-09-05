@@ -1,0 +1,225 @@
+===============================================================================
+Canon M50 ROM Mem2Mem EDMAC Path Analysis
+ROM: /home/krzysztof/canon/dumps/m50_decrypted_rom/ROM0.BIN (32MB @ 0xE0000000)
+Scan region: ShootVfx 0xE07F0000 - 0xE0840000
+===============================================================================
+
+EDMAC Functions Searched:
+  eld_edmac_set_addr    = 0xE054A9AE  (writes r1 -> MMIO[ch]+0xA0)
+  eld_edmac_set_addr2   = 0xE054AFA8  (writes r1 -> MMIO[ch]+0xAC)
+  eld_edmac_set_geom    = 0xE054A9BA  (writes geometry -> MMIO[ch]+0x48..+0x70)
+  eld_edmac_set_mode    = 0xE054AEB0  (writes bits[1:0] -> MMIO[ch]+0xC0)
+  eld_edmac_config      = 0xE0549F76  (registers ISR, sets CBR=1)
+  eld_edmac_set_enable  = 0xE054A4F2
+  eld_edmac_trigger     = 0xE054BF18
+
+===============================================================================
+RESULTS: eld_edmac_set_addr2 Call Sites in ShootVfx Region
+===============================================================================
+
+4 call sites found:
+  1. 0xE080EA44 — in function 0xE080EA28
+  2. 0xE083D50C — in function 0xE083D4BE
+  3. 0xE083DFCA — in function 0xE083DE26 (large)
+  4. 0xE083E188 — in function 0xE083DE26 (same function, tail code)
+
+===============================================================================
+CANDIDATE #1: *** DUAL-ADDRESS MEM-TO-MEM ***
+Function: 0xE080EA28 - 0xE080EB6E (328 bytes)
+Called from: 0xE07D350E
+===============================================================================
+
+EDMAC calls in function:
+  eld_edmac_set_addr   @ 0xE080EA36  ✓
+  eld_edmac_set_addr2  @ 0xE080EA44  ✓  (also tail-call B.W at 0xE080EA50)
+  eld_edmac_set_geom   @ 0xE080EB10  ✓
+  eld_edmac_config:      NOT FOUND
+  eld_edmac_set_mode:    NOT FOUND
+  eld_edmac_set_enable:  NOT FOUND
+  eld_edmac_trigger:     NOT FOUND
+
+Annotated disassembly:
+  e080ea28: PUSH {r4, r5, r6, lr}
+  e080ea2a: MOV  r4, r0              ; r4 = arg0 (params struct)
+  e080ea2c: LDR  r5, [pc, #968]      ; r5 = context/config struct ptr
+  e080ea2e: LDR  r0, [r0, #0]        ; r0 = params[0] (base address?)
+  e080ea30: LDR  r1, [r5, #0x34]     ; r1 = ctx->offset_34 (address offset)
+  e080ea32: ADD  r1, r0              ; r1 = base + offset (source addr)
+  e080ea34: LDR  r0, [r5, #0x20]     ; r0 = ctx->edmac_ch_write (ch index)
+  e080ea36: BL   eld_edmac_set_addr  ; set_addr(write_ch, src_addr)
+  ;
+  e080ea3a: LDRD r1, r0, [r4, #4]   ; r1=params[1], r0=params[2]
+  e080ea3e: ADD  r1, r0, r1 LSL#8   ; r1 = params[2] + (params[1] << 8) (dest addr)
+  e080ea42: LDR  r0, [r5, #0x28]     ; r0 = ctx->edmac_ch_read (2nd ch index)
+  e080ea44: BL   eld_edmac_set_addr2 ; set_addr2(read_ch, dest_addr)
+  ;
+  e080ea48: LDR  r1, [r4, #4]       ; r1=params[1]
+  e080ea4a: LDR  r0, [r5, #0x24]     ; r0 = ctx->edmac_ch_3rd
+  e080ea4c: LDMIA sp!, {r4,r5,r6,lr}
+  e080ea50: B.W  eld_edmac_set_addr2 ; tail-call set_addr2(3rd_ch, params[1])
+
+Analysis:
+  - Uses THREE EDMAC channels from context struct at offsets 0x20, 0x24, 0x28
+  - Channel 0x20: set_addr with computed source address
+  - Channel 0x28: set_addr2 with computed destination address
+  - Channel 0x24: set_addr2 (tail call) with raw params[1]
+  - This is a mem-to-mem DMA path setup: write channel gets source,
+    read channel gets dest via set_addr2
+
+===============================================================================
+CANDIDATE #2: set_addr2 + set_mode (NO set_addr - single-channel setup)
+Function: 0xE083D4BE - 0xE083D548 (140 bytes)
+Called from: 0xE07EFF3C
+===============================================================================
+
+EDMAC calls in function:
+  eld_edmac_set_addr2  @ 0xE083D50C  ✓
+  eld_edmac_set_mode   @ 0xE083D534  ✓
+  eld_edmac_set_addr:    NOT FOUND
+  eld_edmac_set_geom:    NOT FOUND
+  eld_edmac_config:      NOT FOUND
+
+Annotated disassembly:
+  e083d4be: PUSH {r4, r5, lr}
+  e083d4c0: MOV  r4, r0              ; r4 = arg0 (params struct)
+  e083d4c2: SUB  sp, #0x3C
+  ...
+  e083d4ea: LDR  r5, [pc, #300]      ; r5 = context struct
+  e083d4ec: MOVS r0, #0x1F
+  e083d4ee: STR  r0, [r5, #12]       ; ctx->field_0C = 0x1F
+  e083d4f0: MOV  r0, r4
+  e083d4f2: BL   0xe083d418          ; helper function
+  e083d4f6: LDR  r0, [r4, #20]       ; params->geom_yN
+  e083d4f8: STR  r0, [sp, #20]
+  e083d4fa: LDR  r0, [r4, #24]
+  e083d4fc: STR  r0, [sp, #36]
+  e083d4fe: LDR  r0, [r4, #28]
+  e083d500: CBZ  r0, exit            ; if params[7]==0, skip EDMAC setup
+  e083d502: LDR  r0, [r5, #8]        ; r0 = ctx->edmac_ch
+  e083d504: BL   0xe054af96          ; eld_edmac_??? (unknown, near set_addr2)
+  e083d508: LDR  r1, [r4, #0x2C]     ; r1 = params->addr
+  e083d50a: LDR  r0, [r5, #8]        ; r0 = ctx->edmac_ch
+  e083d50c: BL   eld_edmac_set_addr2 ; set_addr2(ch, addr)
+  ...
+  e083d532: MOVS r1, #0
+  e083d534: BL   eld_edmac_set_mode  ; set_mode(ch, 0) — stop/idle mode
+  ...
+  e083d548: POP  {r4, r5, pc}
+
+Analysis:
+  - Single EDMAC channel (from ctx+8)
+  - Calls set_addr2 to program address, then set_mode with mode=0
+  - This is NOT a dual-address mem-to-mem, just a single-channel addr2 setup
+  - Also calls 0xE054AF96 before set_addr2 (likely a clear/reset function)
+  - Also calls 0xE054B3A6 (geometry?) and conditionally 0xE054B442
+
+===============================================================================
+CANDIDATE #3: *** DUAL-ADDRESS MEM-TO-MEM *** (LARGE FUNCTION)
+Function: 0xE083DE26 - 0xE083E16C (with tail code to ~0xE083E1A8)
+842+ bytes, called via function pointer (no direct BL callers found nearby)
+===============================================================================
+
+EDMAC calls in function:
+  eld_edmac_set_addr   @ 0xE083DF56  ✓  (1st channel, write path)
+  eld_edmac_set_addr   @ 0xE083E148  ✓  (2nd channel, write path)
+  eld_edmac_set_addr2  @ 0xE083DFCA  ✓  (1st channel, read/mem2mem path)
+  eld_edmac_set_addr2  @ 0xE083E188  ✓  (2nd channel, read/mem2mem path)
+  eld_edmac_set_geom   @ 0xE083DFA0  ✓
+
+Full EDMAC call sequence analysis:
+
+The function checks [r4, #0] (mode) and [r4, #0x60] (flag):
+
+PATH A (mode==1 or mode==4, flag==0): Standard DMA
+  1. Compute source address from struct fields
+  2. LDR r0, [r9]          ; r0 = edmac_ch from context
+  3. BL set_addr            ; set source address on write channel
+  4. Copy geometry from struct into stack (offsets 0x28-0x44)
+  5. BL set_geom            ; set geometry on write channel
+  6. (mode==4): BL 0xE054B442 with arg r1=3
+
+PATH B (mode==1 or mode==4, flag==1): Mem2Mem DMA
+  1. LDR r0, [r9]          ; r0 = edmac_ch
+  2. BL 0xE054AF96          ; reset/clear
+  3. LDR r1, [r4, #0x64]   ; r1 = destination address
+  4. LDR r0, [r9]           ; r0 = edmac_ch
+  5. BL set_addr2            ; set_addr2(ch, dest_addr) @ 0xE083DFCA
+  6. Copy geometry from struct, then branch to geometry setup
+
+SECOND CHANNEL (at [r6, #4]):
+  - Checks [r4, #0x14] for second channel mode
+  - PATH A2: Standard DMA via set_addr @ 0xE083E148
+  - PATH B2: Mem2Mem via set_addr2 @ 0xE083E188
+
+Analysis:
+  - This is the MAIN mem-to-mem DMA setup function!
+  - Uses TWO EDMAC channel pairs (from r9/r6 context struct)
+  - Channel 1 at [r9, #0] and Channel 2 at [r6, #4]
+  - The flag at [r4, #0x60] (ch1) and [r4, #0x68] (ch2) selects
+    between standard (set_addr) and mem2mem (set_addr2) mode
+  - When flag==1: calls eld_edmac_set_addr2 for secondary address
+  - Source address comes from struct at offsets [r4, #4]+computed
+  - Destination address at [r4, #0x64] (ch1) and [r4, #0x6C] (ch2)
+  - Called via function pointer (no direct BL callers in 0xE07D-0xE086)
+
+Key struct offsets for the params struct (r4):
+  +0x00: mode (1=normal, 3=?, 4=mode4)
+  +0x04: base_addr
+  +0x08: stride_a
+  +0x0C: stride_b
+  +0x10: something (used for geometry width)
+  +0x14: second_channel_mode
+  +0x18: second_base_addr
+  +0x1C: second_stride_a
+  +0x20: second_stride_b
+  +0x24: second_something
+  +0x28-0x44: geometry parameters (ya, yb, xn, xa, xb, off1a, off1b, off2, off3)
+  +0x48-0x4C: second geometry?
+  +0x50: max_lines?
+  +0x54: total_size?
+  +0x58: max_lines2?
+  +0x5C: total_size2?
+  +0x60: ch1_mem2mem_flag (0=standard, 1=mem2mem)
+  +0x64: ch1_dest_addr (for mem2mem)
+  +0x68: ch2_mem2mem_flag
+  +0x6C: ch2_dest_addr (for mem2mem)
+  +0x70: extra_processing_flag
+
+===============================================================================
+GLOBAL EDMAC USAGE IN SHOOTVFX REGION (0xE07F0000 - 0xE0840000)
+===============================================================================
+
+eld_edmac_config:       26 call sites
+eld_edmac_set_addr:     26 call sites
+eld_edmac_set_addr2:     4 call sites (the ones analyzed above)
+eld_edmac_set_geom:     26 call sites
+eld_edmac_set_mode:     25 call sites
+eld_edmac_set_enable:   10 call sites
+eld_edmac_trigger:       0 call sites (trigger likely called from ISR/another module)
+
+===============================================================================
+CONCLUSIONS
+===============================================================================
+
+1. Two functions perform dual-address (set_addr + set_addr2) DMA setup:
+
+   a) 0xE080EA28 — Small helper (328 bytes), uses 3 EDMAC channels from
+      a context struct. Sets source via set_addr, destination via set_addr2.
+      Called from 0xE07D350E.
+
+   b) 0xE083DE26 — Large function (842+ bytes), the MAIN mem-to-mem DMA
+      setup. Uses 2 channel pairs. Has conditional logic: when the mem2mem
+      flag is set (offsets +0x60/+0x68), calls set_addr2 for the destination
+      address instead of set_addr for the source. Called via function pointer.
+
+2. Function 0xE083D4BE uses set_addr2 alone (no set_addr), likely for
+   a single-channel read-side address configuration.
+
+3. The critical mem-to-mem setup pattern is:
+     eld_edmac_set_addr(ch, src_phys_addr)    — program source (write side)
+     eld_edmac_set_addr2(ch, dest_phys_addr)   — program destination (read side)
+     eld_edmac_set_geom(ch, geometry)          — program transfer geometry
+     
+4. No eld_edmac_trigger calls in ShootVfx — the actual trigger happens
+   elsewhere (likely via eld_edmac_config's CBR=1 mechanism or from
+   a different code module).

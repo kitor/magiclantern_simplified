@@ -119,6 +119,23 @@
 
 #define YUV422_HD_BUFFER_DMA_ADDR 0x0 // it expects this to be shamem_read(some_DMA_ADDR)
 
+/*
+ * LiveView RAW EDMAC channel MMIO base.
+ * Used by src/raw.c when CONFIG_RAW_LIVEVIEW=y (traditional EDMAC-based autodetection).
+ *
+ * Identified from RAM event log analysis: Canon firmware's `integSetInitParam`
+ * configures EDMAC write channel #7 (DIGIC 8 write bank) with base address
+ * 0xD0420700 for the raw LiveView buffer DMA. The raw buffer pointer 0x6DCE7518
+ * was found co-located with this EDMAC address in the firmware event log at
+ * 0x40410318/0x40410398. DmacInfo at 0xE0DD7BA0 referenced alongside.
+ *
+ * Note: On DIGIC 8, EDMAC MMIO registers cannot be read via shamem_read
+ * (EngDrvIn returns 0). The M50 raw subsystem overrides in src/raw.c
+ * bypass EDMAC MMIO entirely, reading the buffer address from the
+ * firmware's raw struct at 0x0000D1C8 instead.
+ */
+#define RAW_LV_EDMAC_CHANNEL_ADDR 0xD0420700
+
 /* WRONG! */
 #define HALFSHUTTER_PRESSED         0
 /* kitor: I was unable to find any related stuff from 200D

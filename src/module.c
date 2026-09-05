@@ -1062,6 +1062,7 @@ int module_unload(void *module)
 
 
 /* execute all callback routines of given type. maybe it will get extended to support varargs */
+volatile uint32_t cbr_shoot_handler_count = 0; /* how many SHOOT_TASK handlers dispatched */
 int FAST module_exec_cbr(unsigned int type)
 {
     for(int mod = 0; mod < MODULE_COUNT_MAX; mod++)
@@ -1073,6 +1074,7 @@ int FAST module_exec_cbr(unsigned int type)
             {
                 if(cbr->type == type)
                 {
+                    if (type == CBR_SHOOT_TASK) cbr_shoot_handler_count++;
                     int ret = cbr->handler(cbr->ctx);
                     
                     if (ret != CBR_RET_CONTINUE)
@@ -1696,6 +1698,18 @@ const char* module_get_name(int mod_number)
     }
     
     return module_list[mod_number].name;
+}
+
+void module_get_cbr_and_error(int mod_number, int *has_cbr, int *error)
+{
+    if(mod_number < 0 || mod_number >= MODULE_COUNT_MAX)
+    {
+        *has_cbr = 0;
+        *error = -1;
+        return;
+    }
+    *has_cbr = (module_list[mod_number].cbr != 0) ? 1 : 0;
+    *error = module_list[mod_number].error;
 }
 
 /*  returns the next loaded module id, or -1 when the end was reached.

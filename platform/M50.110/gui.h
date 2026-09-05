@@ -23,6 +23,8 @@
 #define BGMT_WHEEL_LEFT              0x02
 #define BGMT_WHEEL_RIGHT             0x03
 
+#define BGMT_REC                     0x79
+
 #define BGMT_PRESS_HALFSHUTTER       0x5B //unpress 0x5C
 
 /** WRONG, MAPPED TO M.Fn for now!

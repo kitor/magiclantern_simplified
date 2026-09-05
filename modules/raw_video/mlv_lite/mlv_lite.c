@@ -106,6 +106,7 @@ static int cam_1100d = 0;
 static int cam_5d3 = 0;
 static int cam_5d3_113 = 0;
 static int cam_5d3_123 = 0;
+static int is_m50 = 0;
 
 /**
  * resolution (in pixels) should be multiple of 16 horizontally (see http://www.magiclantern.fm/forum/index.php?topic=5839.0)
@@ -279,7 +280,7 @@ static GUARDED_BY(settings_sem) int res_x = 0;
 static GUARDED_BY(settings_sem) int res_y = 0;
 static GUARDED_BY(settings_sem) int max_res_x = 0;
 static GUARDED_BY(settings_sem) int max_res_y = 0;
-static GUARDED_BY(settings_sem) float squeeze_factor = 0;
+static GUARDED_BY(settings_sem) float squeeze_factor = 1.0f;
 static GUARDED_BY(settings_sem) int max_frame_size = 0;
 static GUARDED_BY(settings_sem) int frame_size_uncompressed = 0;
 static GUARDED_BY(settings_sem) int configured_max_frame_size = 0;
@@ -571,7 +572,7 @@ static void refresh_cropmarks()
     {
         reset_movie_cropmarks();
     }
-    else
+    else if (lv2raw.sx && lv2raw.sy)
     {
         int x = RAW2BM_X(skip_x);
         int y = RAW2BM_Y(skip_y);
@@ -586,6 +587,8 @@ static int calc_res_y(int res_x, int max_res_y, int num, int den, float squeeze)
 {
     int res_y;
     
+    if (squeeze == 0.0f) squeeze = 1.0f;
+
     if (squeeze != 1.0f)
     {
         /* image should be enlarged vertically in post by a factor equal to "squeeze" */
@@ -686,7 +689,10 @@ void update_resolution_params()
     int sampling_x   = raw_capture_info.binning_x + raw_capture_info.skipping_x;
     int sampling_y   = raw_capture_info.binning_y + raw_capture_info.skipping_y;
 
-    squeeze_factor = sampling_y * 1.0 / sampling_x;
+    if (sampling_x == 0)
+        squeeze_factor = 1.0f;
+    else
+        squeeze_factor = sampling_y * 1.0 / sampling_x;
 
     /* res X */
     res_x = MIN(resolution_presets_x[resolution_index_x] + res_x_fine, max_res_x);
@@ -744,6 +750,7 @@ void update_resolution_params()
 static char* guess_aspect_ratio(int res_x, int res_y)
 {
     static char msg[20];
+    if (res_y == 0) { snprintf(msg, sizeof(msg), "N/A"); return msg; }
     int best_num = 0;
     int best_den = 0;
     float ratio = (float)res_x / res_y;
@@ -884,6 +891,7 @@ static char* guess_how_many_frames()
 static MENU_UPDATE_FUNC(write_speed_update)
 {
     int fps = fps_get_current_x1000();
+    if (fps == 0) return;
 
     int speed = (res_x * res_y * BPP/8 / 1024) * fps / 1024
         * get_estimated_compression_ratio() / 100 / 10;
@@ -1002,9 +1010,6 @@ void refresh_raw_settings(int force)
 
     take_semaphore(settings_sem, 0);
 
-    /* if we got the semaphore before raw_rec_task started, all fine */
-    /* if we got it afterwards, RAW_IS_IDLE is no longer true => stop */
-    /* raw_rec_task is unable to change the state while we have the semaphore */
     if (!RAW_IS_IDLE) goto end;
 
     /* autodetect the resolution (update 4 times per second) */
@@ -1036,7 +1041,7 @@ static int calc_crop_factor()
     int camera_crop  = raw_capture_info.sensor_crop;
     int sampling_x   = raw_capture_info.binning_x + raw_capture_info.skipping_x;
 
-    if (res_x == 0) return 0;
+    if (res_x == 0 || sampling_x == 0) return 0;
     return camera_crop * (sensor_res_x / sampling_x) / res_x;
 }
 
@@ -1575,33 +1580,45 @@ int setup_buffers()
     /* discard old full-size buffers */
     fullsize_buffers[0] = fullsize_buffers[1] = 0;
 
-    if (fullres_buf_size > 20 * 1024 * 1024 - 1024 && !OUTPUT_COMPRESSION)
+    if (is_m50)
     {
-        /* large buffers? assume single-buffering is safe for uncompressed output */
-        printf("Using single buffering (check with Show EDMAC).\n");
-        fullsize_buffers[0] = UNCACHEABLE(raw_info.buffer);
+        /* M50: raw_lv_redirect_edmac is a no-op, so double-buffering is impossible.
+         * Canon always DMA's into raw_info.buffer. Both pointers must be the same.
+         * Use CACHEABLE so the CPU sees current data; DMA override flushes cache. */
+        printf("M50: single-buffer mode (redirect is no-op).\n");
+        fullsize_buffers[0] = CACHEABLE(raw_info.buffer);
+        fullsize_buffers[1] = CACHEABLE(raw_info.buffer);
     }
+    else
+    {
+        if (fullres_buf_size > 20 * 1024 * 1024 - 1024 && !OUTPUT_COMPRESSION)
+        {
+            /* large buffers? assume single-buffering is safe for uncompressed output */
+            printf("Using single buffering (check with Show EDMAC).\n");
+            fullsize_buffers[0] = UNCACHEABLE(raw_info.buffer);
+        }
 
-    /* allocate a full-size buffer, if we haven't one already */
-    if (!fullsize_buffers[0])
-    {
-        printf("Trying double buffering (shoot, full size %s)...\n", format_memory_size(fullres_buf_size));
-        fullsize_buffers[0] = alloc_fullsize_buffer(shoot_mem_suite, fullres_buf_size);
-    }
-    if (!fullsize_buffers[0])
-    {
-        printf("Trying double buffering (SRM)...\n");
-        fullsize_buffers[0] = alloc_fullsize_buffer(srm_mem_suite, fullres_buf_size);
-    }
-    if (!fullsize_buffers[0])
-    {
-        /* still unsuccessful? */
-        printf("Falling back to single buffering (check with Show EDMAC).\n");
-        fullsize_buffers[0] = UNCACHEABLE(raw_info.buffer);
-    }
+        /* allocate a full-size buffer, if we haven't one already */
+        if (!fullsize_buffers[0])
+        {
+            printf("Trying double buffering (shoot, full size %s)...\n", format_memory_size(fullres_buf_size));
+            fullsize_buffers[0] = alloc_fullsize_buffer(shoot_mem_suite, fullres_buf_size);
+        }
+        if (!fullsize_buffers[0])
+        {
+            printf("Trying double buffering (SRM)...\n");
+            fullsize_buffers[0] = alloc_fullsize_buffer(srm_mem_suite, fullres_buf_size);
+        }
+        if (!fullsize_buffers[0])
+        {
+            /* still unsuccessful? */
+            printf("Falling back to single buffering (check with Show EDMAC).\n");
+            fullsize_buffers[0] = UNCACHEABLE(raw_info.buffer);
+        }
 
-    /* reuse Canon's buffer */
-    fullsize_buffers[1] = UNCACHEABLE(raw_info.buffer);
+        /* reuse Canon's buffer */
+        fullsize_buffers[1] = UNCACHEABLE(raw_info.buffer);
+    }
 
     /* anything wrong? */
     if(fullsize_buffers[0] == 0 || fullsize_buffers[1] == 0)
@@ -2019,9 +2036,9 @@ void show_recording_status()
 static REQUIRES(ShootTask) EXCLUDES(settings_sem)
 unsigned int raw_rec_polling_cbr(unsigned int unused)
 {
-    if (!compress_mq) return 0;
-
     raw_lv_request_update();
+
+    if (!compress_mq) return 0;
 
     /* auto-disable raw video in photo mode or outside LiveView */
     int raw_video_active = raw_video_enabled && lv && is_movie_mode();
@@ -2630,6 +2647,13 @@ static void FAST edmac_spy_poll(int last_expiry, void* unused)
     /* schedule next call */
     SetHPTimerNextTick(last_expiry, LOG_INTERVAL, edmac_spy_poll, edmac_spy_poll, 0);
 
+    if (is_m50)
+    {
+        /* M50: EDMAC MMIO reads (0xC04xxxxx, 0xD04xxxxx) hang the CPU.
+         * The spy feature is not usable on DIGIC 8. */
+        return;
+    }
+
     /* this routine requires LCLK enabled */
     // SJE FIXME this MMIO seems the same on 200D and old cams,
     // but it should still be turned into a named constant or something.
@@ -2695,7 +2719,11 @@ static void edmac_cbr_r(void *ctx)
 static void edmac_cbr_w(void *ctx)
 {
     edmac_active = 0;
-    edmac_copy_rectangle_adv_cleanup();
+    if (!is_m50)
+    {
+        /* M50 override is synchronous — no semaphore to release */
+        edmac_copy_rectangle_adv_cleanup();
+    }
 }
 
 static void compress_task()
@@ -2717,11 +2745,20 @@ static void compress_task()
         {
             /* start recording */
 
-            if (OUTPUT_COMPRESSION == 0)
+            if (is_m50)
             {
-                /* get exclusive access to our edmac channels */
-                edmac_memcpy_res_lock();
-                printf("EDMAC copy resources locked.\n");
+                /* M50: ResLock (CreateResLockEntry) returns NULL on DIGIC 8.
+                 * The m2m DMA override does its own m2m_resource_lock internally. */
+                printf("M50: recording start (DMA resource lock handled by m2m).\n");
+            }
+            else
+            {
+                if (OUTPUT_COMPRESSION == 0)
+                {
+                    /* get exclusive access to our edmac channels */
+                    edmac_memcpy_res_lock();
+                    printf("EDMAC copy resources locked.\n");
+                }
             }
 
             edmac_start_spy();
@@ -2733,11 +2770,18 @@ static void compress_task()
         {
             /* stop_recording */
 
-            if (OUTPUT_COMPRESSION == 0)
+            if (is_m50)
             {
-                /* exclusive edmac access no longer needed */
-                edmac_memcpy_res_unlock();
-                printf("EDMAC copy resources unlocked.\n");
+                printf("M50: recording stop.\n");
+            }
+            else
+            {
+                if (OUTPUT_COMPRESSION == 0)
+                {
+                    /* exclusive edmac access no longer needed */
+                    edmac_memcpy_res_unlock();
+                    printf("EDMAC copy resources unlocked.\n");
+                }
             }
 
             edmac_stop_spy();
@@ -2758,7 +2802,8 @@ static void compress_task()
         void* out_ptr = slots[slot_index].ptr + VIDF_HDR_SIZE;
         void* fullSizeBuffer = fullsize_buffers[fullsize_index];
 
-        edmac_start_clock = GET_DIGIC_TIMER();
+        /* GET_DIGIC_TIMER is broken on DIGIC 8 (register 0xC0242014 invalid) */
+        edmac_start_clock = is_m50 ? (uint32_t)(get_ms_clock() * 1000) : GET_DIGIC_TIMER();
 
         if (OUTPUT_COMPRESSION)
         {
@@ -2819,6 +2864,9 @@ static void compress_task()
         }
         else
         {
+            /* M50: edmac_copy_rectangle_cbr_start is SYNCHRONOUS (polls until done,
+             * then calls callbacks inline before returning). So edmac_active is set
+             * to 0 by edmac_cbr_w before this function returns. No race condition. */
             edmac_active = 1;
             edmac_copy_rectangle_cbr_start(
                 (void*)out_ptr, fullSizeBuffer,
@@ -2827,6 +2875,7 @@ static void compress_task()
                 res_x * BPP/8, res_y,
                 &edmac_cbr_r, &edmac_cbr_w, NULL
             );
+            /* on M50: edmac_active is already 0 here (set by edmac_cbr_w synchronously) */
         }
         
         /* mark it as completed */
@@ -2859,10 +2908,20 @@ void process_frame(int next_fullsize_buffer_pos)
     
     if (edmac_active)
     {
-        /* EDMAC too slow */
-        NotifyBox(2000, "EDMAC timeout.");
-        buffer_full = 1;
-        return;
+        if (is_m50)
+        {
+            /* M50: DMA is synchronous, so edmac_active should never be 1 here.
+             * If it is, something is very wrong — skip frame instead of stopping. */
+            skipped_frames++;
+            return;
+        }
+        else
+        {
+            /* EDMAC too slow */
+            NotifyBox(2000, "EDMAC timeout.");
+            buffer_full = 1;
+            return;
+        }
     }
     
     pre_record_vsync_step();
@@ -2905,9 +2964,19 @@ void process_frame(int next_fullsize_buffer_pos)
     }
     else
     {
-        /* card too slow */
-        buffer_full = 1;
-        return;
+        if (is_m50)
+        {
+            /* M50: skip frame and continue instead of stopping recording.
+             * This enables variable-fps recording when SD card can't keep up. */
+            skipped_frames++;
+            return;
+        }
+        else
+        {
+            /* card too slow */
+            buffer_full = 1;
+            return;
+        }
     }
 
     /* set VIDF metadata for this frame */
@@ -2949,15 +3018,25 @@ unsigned int FAST raw_rec_vsync_cbr(unsigned int unused)
     if (!raw_lv_settings_still_valid()) { raw_recording_state = RAW_FINISHING; return 0; }
     if (buffer_full) return 0;
     
-    /* double-buffering */
-    raw_lv_redirect_edmac(fullsize_buffers[fullsize_buffer_pos % 2]);
+    if (is_m50)
+    {
+        /* M50: raw_lv_redirect_edmac is a no-op (buffer redirect crashes EIS).
+         * Both fullsize_buffers[] point to the same Canon raw buffer.
+         * DMA copy takes ~4ms, well within 33ms frame period — no tearing. */
+        process_frame(0);
+    }
+    else
+    {
+        /* double-buffering */
+        raw_lv_redirect_edmac(fullsize_buffers[fullsize_buffer_pos % 2]);
 
-    /* advance to next buffer for the upcoming capture */
-    int next_fullsize_buffer_pos = (fullsize_buffer_pos + 1) % 2;
+        /* advance to next buffer for the upcoming capture */
+        int next_fullsize_buffer_pos = (fullsize_buffer_pos + 1) % 2;
 
-    process_frame(next_fullsize_buffer_pos);
+        process_frame(next_fullsize_buffer_pos);
 
-    fullsize_buffer_pos = next_fullsize_buffer_pos;
+        fullsize_buffer_pos = next_fullsize_buffer_pos;
+    }
 
     return 0;
 }
@@ -4514,6 +4593,8 @@ static unsigned int raw_rec_init()
     cam_5d3_113 = is_camera("5D3",  "1.1.3");
     cam_5d3_123 = is_camera("5D3",  "1.2.3");
     cam_5d3 = (cam_5d3_113 || cam_5d3_123);
+
+    is_m50 = is_camera("M50", "1.1.0");
 
     // Only enable card spanning if dual slot cam,
     // and both SD and CF cards are present.

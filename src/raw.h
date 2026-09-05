@@ -90,6 +90,9 @@ struct raw_pixblock
 /* returns 1=success, 0=failed */
 int raw_update_params();
 
+/* M50 diagnostic: last failure reason string from raw_update_params_work() */
+const char* raw_lv_get_fail_reason(void);
+
 /* get a red/green/blue pixel near the specified coords (approximate) */
 int raw_red_pixel(int x, int y);
 int raw_green_pixel(int x, int y);
@@ -366,6 +369,16 @@ extern int can_use_raw_overlays_menu();
 /* for movie mode, this only happens if some sort of raw recorder is active */
 /* for photo mode, it should happen when some raw overlays are active */
 extern int raw_lv_is_enabled();
+
+/* Diagnostic struct for mlv_lite module to report status to core overlay */
+typedef struct {
+    volatile uint32_t raw_video_enabled;
+    volatile uint32_t poll_count;
+    volatile uint32_t raw_lv_requested;
+    volatile uint32_t cam_m50;
+} mlv_diag_t;
+extern mlv_diag_t mlv_diag;
+
 #else
 /* with this macro, the compiler will optimize out the code blocks that depend on LiveView raw support */
 /* (no need to sprinkle the code with #ifdef CONFIG_RAW_LIVEVIEW) */

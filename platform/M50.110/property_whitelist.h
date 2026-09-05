@@ -28,7 +28,6 @@
 // deny reads / do not register property handlers for these
 const uint32_t prop_handler_deny[] =
 {
-    PROP_ISO,
     PROP_MVR_REC_START, // probably related to MVR stubs being all wrong
     PROP_LV_AFFRAME // so far crash only confirmed on Digic 8
 };
@@ -36,6 +35,7 @@ const uint32_t prop_handler_deny[] =
 // allow writes / allow prop_request_change() for these:
 const uint32_t prop_write_allow[] =
 {
+    0x6000C,  /* FA_SetCRawBitNum — Canon native bit-depth control */
 };
 
 // anything not listed above will allow reads but not writes
