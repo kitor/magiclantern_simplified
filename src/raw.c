@@ -719,65 +719,39 @@ static int raw_lv_buffer_size = 0;
  * timer has elapsed.  In between, the previous (or default) height is
  * returned so callers are never stalled.
  */
-#define M50_1080P_PITCH     3668   /* bytes/line in 1080p (2096 pixels, 14-bit) */
-#define M50_4K_PITCH        7336   /* bytes/line in 4K (4192 pixels, 14-bit)    */
-#define M50_PROBE_WAIT_MS    200   /* delay before checking sentinel            */
-
-static inline int m50_is_4k(void)
-{
-    uint32_t alloc = *(volatile uint32_t *)0x0000D1C4;
-    return (alloc > 8000000 && alloc < 0x04000000);
-}
-
-static inline int m50_get_pitch(void)
-{
-    return m50_is_4k() ? M50_4K_PITCH : M50_1080P_PITCH;
-}
-
-static inline int m50_get_width(void)
-{
-    return m50_get_pitch() * 8 / 14;
-}
-
-static inline int m50_get_min_height(void)
-{
-    return m50_is_4k() ? 1600 : 838;
-}
-
-static inline int m50_get_max_probe(void)
-{
-    return m50_is_4k() ? 2400 : 1300;
-}
+#define M50_MIN_RAW_HEIGHT   838   /* known minimum across tested modes       */
+#define M50_MAX_RAW_PROBE   2000   /* stop probing here                       */
+#define M50_RAW_PITCH       3668   /* bytes/line (14-bit packed, 2096 pixels) */
+#define M50_PROBE_WAIT_MS    200   /* delay before checking sentinel          */
 
 enum { M50_PROBE_IDLE = 0, M50_PROBE_WAIT, M50_PROBE_DONE };
 
 static int m50_probe_state    = M50_PROBE_IDLE;
-static int m50_probe_height   = 838;
+static int m50_probe_height   = M50_MIN_RAW_HEIGHT;
 static int m50_probe_start_ms = 0;
 static int m50_probe_mode_key = -1;
 
 /* Encode the current Canon video mode as a single integer so we can
- * detect mode changes cheaply. Include 4K buffer state in key. */
+ * detect mode changes cheaply. */
 static int m50_video_mode_key(void)
 {
-    return (m50_is_4k() << 24) | (video_mode_resolution << 16) | (video_mode_crop << 8) | video_mode_fps;
+    return (video_mode_resolution << 16) | (video_mode_crop << 8) | video_mode_fps;
 }
 
 /* Maximum probeable line given the buffer allocation at 0xD1C4. */
 static int m50_probe_max_line(void)
 {
     uint32_t alloc = *(volatile uint32_t *)0x0000D1C4;
-    int limit = m50_get_max_probe();
-    int pitch = m50_get_pitch();
-    if (alloc > 0 && alloc < 0x04000000 && pitch > 0)
+    int limit = M50_MAX_RAW_PROBE;
+    if (alloc > 0 && alloc < 0x02000000)
     {
-        int buf_lines = alloc / pitch;
+        int buf_lines = alloc / M50_RAW_PITCH;
         if (limit > buf_lines) limit = buf_lines;
     }
     return limit;
 }
 
-/* Step 1: zero the sentinel region (lines min_height .. max_line). */
+/* Step 1: zero the sentinel region (lines MIN_HEIGHT .. max_line). */
 static void m50_probe_zero(void)
 {
     volatile uint32_t *rs = (volatile uint32_t *)0x0000D1C8;
@@ -788,13 +762,11 @@ static void m50_probe_zero(void)
      * Both our memset and Canon's DMA bypass the CPU cache. */
     uint8_t *buf = (uint8_t *)(uintptr_t)buf_addr;
 
-    int min_h = m50_get_min_height();
-    int pitch = m50_get_pitch();
     int max_line = m50_probe_max_line();
-    int zero_bytes = (max_line - min_h) * pitch;
+    int zero_bytes = (max_line - M50_MIN_RAW_HEIGHT) * M50_RAW_PITCH;
     if (zero_bytes > 0)
     {
-        memset(buf + min_h * pitch, 0, zero_bytes);
+        memset(buf + M50_MIN_RAW_HEIGHT * M50_RAW_PITCH, 0, zero_bytes);
     }
 }
 
@@ -803,24 +775,22 @@ static int m50_probe_check(void)
 {
     volatile uint32_t *rs = (volatile uint32_t *)0x0000D1C8;
     uint32_t buf_addr = rs[0];
-    int min_h = m50_get_min_height();
-    if (!buf_addr) return min_h;
+    if (!buf_addr) return M50_MIN_RAW_HEIGHT;
 
     uint8_t *buf = (uint8_t *)(uintptr_t)buf_addr;
     int max_line = m50_probe_max_line();
-    int pitch = m50_get_pitch();
 
-    int detected = min_h;
-    for (int y = min_h; y < max_line; y++)
+    int detected = M50_MIN_RAW_HEIGHT;
+    for (int y = M50_MIN_RAW_HEIGHT; y < max_line; y++)
     {
-        uint32_t *row = (uint32_t *)(buf + y * pitch);
+        uint32_t *row = (uint32_t *)(buf + y * M50_RAW_PITCH);
         int has_data = 0;
 
         /* Sample ~32 evenly-spaced words per line.  Skip the first
          * 16 bytes (possible DMA padding / alignment artifacts). */
-        int step = pitch / (32 * 4);
+        int step = M50_RAW_PITCH / (32 * 4);
         if (step < 1) step = 1;
-        for (int i = 4; i < pitch / 4; i += step)
+        for (int i = 4; i < M50_RAW_PITCH / 4; i += step)
         {
             if (row[i] != 0) { has_data = 1; break; }
         }
@@ -915,11 +885,12 @@ static int raw_lv_get_resolution(int* width, int* height)
     return 1;
 
 #elif defined(CONFIG_M50)
-    /* DIGIC 8: dynamic pitch and height detection.
-     * 1080p mode: pitch is 3668 bytes (2096 pixels).
-     * 4K mode:    pitch is 7336 bytes (4192 pixels).
-     * Height is probed per video mode via zero-sentinel scan. */
-    *width = m50_get_width();
+    /* DIGIC 8: hardcoded pitch, dynamic height via zero-sentinel probe.
+     * Width is always 2096 pixels (3668 bytes / line, 14-bit packed).
+     * Height is probed per video mode — Canon may output more lines in
+     * 4K crop mode than in 1080p.  Falls back to 838 (the known minimum
+     * confirmed via RAM dump comparison). */
+    *width = M50_RAW_PITCH * 8 / 14;   /* 2096 */
 
     /* Detect video-mode changes and re-probe */
     int mk = m50_video_mode_key();
@@ -927,7 +898,6 @@ static int raw_lv_get_resolution(int* width, int* height)
     {
         m50_probe_state = M50_PROBE_IDLE;
         m50_probe_mode_key = mk;
-        m50_probe_height = m50_get_min_height();
     }
 
     switch (m50_probe_state)
@@ -938,8 +908,8 @@ static int raw_lv_get_resolution(int* width, int* height)
             m50_probe_start_ms = get_ms_clock();
             m50_probe_state = M50_PROBE_WAIT;
             /* Log mode info once per probe cycle */
-            printf("[RAW] M50 probe: zeroed sentinel (4K=%d res=%d crop=%d fps=%d)\n",
-                   m50_is_4k(), video_mode_resolution, video_mode_crop, video_mode_fps);
+            printf("[RAW] M50 probe: zeroed sentinel (res=%d crop=%d fps=%d)\n",
+                   video_mode_resolution, video_mode_crop, video_mode_fps);
             break;
         }
 
@@ -950,9 +920,9 @@ static int raw_lv_get_resolution(int* width, int* height)
                 int h = m50_probe_check();
                 m50_probe_height = h;
                 m50_probe_state = M50_PROBE_DONE;
-                printf("[RAW] M50 probe: %dx%d lines detected (4K=%d res=%d crop=%d fps=%d)%s\n",
-                       *width, h, m50_is_4k(), video_mode_resolution, video_mode_crop, video_mode_fps,
-                       (h > m50_get_min_height()) ? " — EXTENDED!" : "");
+                printf("[RAW] M50 probe: %d lines detected (res=%d crop=%d fps=%d)%s\n",
+                       h, video_mode_resolution, video_mode_crop, video_mode_fps,
+                       (h > M50_MIN_RAW_HEIGHT) ? " — EXTENDED!" : "");
 
                 /* Also log the raw state struct for analysis */
                 volatile uint32_t *rs = (volatile uint32_t *)0x0000D1C4;
@@ -1524,11 +1494,7 @@ int raw_update_params_work()
     /* photo mode and crop/zoom modes use 1:1 readout */
     /* LiveView uses 3x3 column binning / line skipping on most models */
     /* and 3x5 in 720p */
-#ifdef CONFIG_M50
-    if (!lv || zoom || video_mode_crop || m50_is_4k())
-#else
     if (!lv || zoom || video_mode_crop)
-#endif
     {
         raw_capture_info.binning_x  = raw_capture_info.binning_y  = 1;
         raw_capture_info.skipping_x = raw_capture_info.skipping_y = 0;
