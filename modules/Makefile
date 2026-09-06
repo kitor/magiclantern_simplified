@@ -77,7 +77,7 @@ ifeq ($(notdir $(WORKING_DIR)),$(notdir $(MODULES_DIR)))
     # no changes have occured to the module.  The marker file
     # depends on all relevant parts of the module but is
     # created by "touch".
-$(shell rm $(ML_MODULE_TARGETS) > /dev/null 2>&1)
+$(shell rm -f $(ML_MODULE_TARGETS) > /dev/null 2>&1)
 endif
 
 # Default target if make run in "modules" dir

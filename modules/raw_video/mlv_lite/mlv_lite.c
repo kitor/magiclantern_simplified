@@ -240,6 +240,8 @@ static int bpp_digital_gain()
 
 static int raw_digital_gain_ok()
 {
+    if (is_m50) return 0;
+
     if (output_format > OUTPUT_14BIT_LOSSLESS)
     {
         /* fixme: not working in modes with higher resolution */
@@ -928,6 +930,8 @@ static MENU_UPDATE_FUNC(write_speed_update)
 static REQUIRES(settings_sem)
 void setup_bit_depth_digital_gain(int force_off)
 {
+    if (is_m50) return;
+
     static int prev_bpp_d = 0;
     int bpp_d = BPP_D;
 
@@ -1498,7 +1502,10 @@ void free_buffers()
 
     if (fullsize_buffers[1] && raw_info.buffer)
     {
-        ASSERT(fullsize_buffers[1] == UNCACHEABLE(raw_info.buffer));
+        if (!is_m50)
+        {
+            ASSERT(fullsize_buffers[1] == UNCACHEABLE(raw_info.buffer));
+        }
     }
     fullsize_buffers[1] = 0;
 
@@ -2797,10 +2804,10 @@ static void FAST repack_14_to_10(uint8_t *dst, const uint8_t *src, int num_pixel
         uint32_t p3 = ((s5 >> 2) | (s6 << 6)) >> 4;
 
         dst[0] = p0;
-        dst[1] = (p0 >> 8) | ((p1 & 0x3F) << 2);
-        dst[2] = (p1 >> 6) | ((p2 & 0x0F) << 4);
-        dst[3] = (p2 >> 4) | ((p3 & 0x03) << 6);
-        dst[4] = p3 >> 2;
+        dst[1] = ((p0 >> 8) & 0x03) | ((p1 & 0x3F) << 2);
+        dst[2] = ((p1 >> 6) & 0x0F) | ((p2 & 0x0F) << 4);
+        dst[3] = ((p2 >> 4) & 0x3F) | ((p3 & 0x03) << 6);
+        dst[4] = (p3 >> 2) & 0xFF;
         dst += 5;
     }
 }
@@ -2871,6 +2878,12 @@ static void compress_task()
         int slot_index = msg & 0xFFFF;
         if (slot_index < 0)
             continue;
+
+        if (RAW_IS_IDLE)
+        {
+            /* Recording stopped; discard stale messages to avoid accessing freed buffers */
+            continue;
+        }
 
         rec_dbg_log("compress_task: got slot message");
 
@@ -3983,7 +3996,7 @@ abort_and_check_early_stop:
             if (!RECORDING_H264 && card_index == 0)
             {
                 /* faster writing speed that way */
-                PauseLiveView();
+                if (!is_m50) PauseLiveView();
             }
 
             if (last_block_size > 3)
@@ -4023,7 +4036,7 @@ abort_and_check_early_stop:
     if (!RECORDING_H264 && card_index == 0)
     {
         /* faster writing speed that way */
-        PauseLiveView();
+        if (!is_m50) PauseLiveView();
 
         /* PauseLiveView breaks UI locks - why? */
         gui_uilock(UILOCK_EVERYTHING);
@@ -4177,7 +4190,7 @@ cleanup:
         }
 
         rec_dbg_log("cleanup: ResumeLiveView");
-        ResumeLiveView();
+        if (!is_m50) ResumeLiveView();
         redraw();
         raw_recording_state = RAW_IDLE;
         rec_dbg_log("cleanup: done (RAW_IDLE)");

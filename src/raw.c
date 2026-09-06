@@ -892,6 +892,14 @@ static int raw_lv_get_resolution(int* width, int* height)
      * confirmed via RAM dump comparison). */
     *width = M50_RAW_PITCH * 8 / 14;   /* 2096 */
 
+    /* If recording is in progress, never re-probe, zero memory, or change height!
+     * Changing height mid-recording terminates the clip early via raw_lv_settings_still_valid. */
+    if (RECORDING)
+    {
+        *height = m50_probe_height;
+        return 1;
+    }
+
     /* Detect video-mode changes and re-probe */
     int mk = m50_video_mode_key();
     if (mk != m50_probe_mode_key)
@@ -2491,10 +2499,16 @@ int raw_lv_settings_still_valid()
 {
     /* should be fast enough for vsync calls */
     if (!lv_raw_enabled) return 0;
+#ifdef CONFIG_M50
+    /* On M50, raw geometry is fixed. Transient resolution reads during vsync
+     * must not kill active recording clips. */
+    return 1;
+#else
     int w, h;
     if (!raw_lv_get_resolution(&w, &h)) return 0;
     if (w != raw_info.width || h != raw_info.height) return 0;
     return 1;
+#endif
 }
 #endif // CONFIG_RAW_LIVEVIEW
 
@@ -2951,6 +2965,15 @@ void raw_lv_release()
 
 void raw_lv_request_bpp(int bpp)
 {
+#ifdef CONFIG_M50
+    /* DIGIC 8 M50: sensor readout is always 14-bit packed into RAM.
+     * Bit-depth reduction (10/12-bit) is done purely in software
+     * by the mlv_lite repacker. Attempting to write to 0xd0008094
+     * or changing raw_info.bits_per_pixel causes bus errors and
+     * breaks raw_update_params. */
+    (void)bpp;
+    return;
+#endif
     take_semaphore(raw_sem, 0);
 
     /* raw bit depth setup is done from PACK32_MODE register (mask 0x131) */
@@ -3011,6 +3034,10 @@ void raw_lv_request_bpp(int bpp)
 
 void raw_lv_request_digital_gain(int gain)
 {
+#ifdef CONFIG_M50
+    (void)gain;
+    return;
+#endif
     take_semaphore(raw_sem, 0);
 
     ASSERT(lv_raw_enabled);
