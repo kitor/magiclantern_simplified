@@ -1577,8 +1577,13 @@ int setup_buffers()
 
     if (!shoot_mem_suite && !srm_mem_suite)
     {
-        printf("No memory suites.\n");
-        return 0;
+        printf("No memory suites, attempting realloc...\n");
+        realloc_buffers();
+        if (!shoot_mem_suite && !srm_mem_suite)
+        {
+            printf("No memory suites available.\n");
+            return 0;
+        }
     }
 
     printf("Setting up buffers (frame size %s, ", format_memory_size(max_frame_size));
@@ -2177,6 +2182,7 @@ void FAST hack_liveview_vsync()
 static REQUIRES(RawRecTask)
 void hack_liveview(int unhack)
 {
+    if (is_m50) return;
     if (small_hacks)
     {
         /* disable canon graphics (gains a little speed) */
@@ -2733,22 +2739,10 @@ static void edmac_cbr_w(void *ctx)
     }
 }
 
-/* File-based crash breadcrumbs for M50 raw video bring-up */
-extern void dcache_clean(uint32_t addr, uint32_t size);
-static int rec_dbg_step = 100;
+/* Debug breadcrumbs no-oped to prevent SD card starvation during recording */
 static void rec_dbg_log(const char* msg)
 {
-    if (!is_m50) return;
-    char fname[40];
-    int step = rec_dbg_step++;
-    snprintf(fname, sizeof(fname), "B:/REC%03d.TXT", step);
-    FILE* f = FIO_CreateFile(fname);
-    if (f) {
-        char buf[120];
-        int len = snprintf(buf, sizeof(buf), "rec%d: %s\n", step, msg);
-        FIO_WriteFile(f, buf, len);
-        FIO_CloseFile(f);
-    }
+    (void)msg;
 }
 
 /* Software bit-repackers for DIGIC 8 (which lacks PACK32_MODE EDMAC hardware).
@@ -2969,7 +2963,6 @@ static void compress_task()
                 uint8_t *dst_row = dst_base + y * dst_stride;
                 repack_14_to_12(dst_row, src_row, res_x);
             }
-            dcache_clean((uint32_t)dst_base, res_y * dst_stride);
             frame_fake_edmac_check(slot_index);
             rec_dbg_log("compress: 12bit done");
         }
@@ -2986,7 +2979,6 @@ static void compress_task()
                 uint8_t *dst_row = dst_base + y * dst_stride;
                 repack_14_to_10(dst_row, src_row, res_x);
             }
-            dcache_clean((uint32_t)dst_base, res_y * dst_stride);
             frame_fake_edmac_check(slot_index);
             rec_dbg_log("compress: 10bit done");
         }
@@ -3636,14 +3628,18 @@ void raw_video_rec_task(uint32_t card_index)
             goto cleanup;
         }
 
-        rec_dbg_log("rec_task: update_resolution_params");
         take_semaphore(settings_sem, 0);
         update_resolution_params();
-        rec_dbg_log("rec_task: setup_buffers");
-        setup_buffers();
-        rec_dbg_log("rec_task: setup_bit_depth");
+        int ok_buf = setup_buffers();
         setup_bit_depth();
         give_semaphore(settings_sem);
+
+        if (!ok_buf || valid_slot_count < 2)
+        {
+            printf("Buffer setup failed (ok=%d, slots=%d)\n", ok_buf, valid_slot_count);
+            NotifyBox(5000, "Buffer error (%d slots)", valid_slot_count);
+            goto cleanup;
+        }
 
         /* create output file */
         rec_dbg_log("rec_task: get_next_raw_movie_file_name");

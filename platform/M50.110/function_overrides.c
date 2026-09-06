@@ -500,8 +500,11 @@ extern uint32_t EfmErscDeleteLockEntry(void);
 #define DARKCURCOR_CH_PAIR    ((void *)0xE0F72640)
 #define M2M_NOP_CBR           ((void *)0xE084DF49)
 
-/* Set to 1 to enable EDMAC DMA copy, 0 for CPU fallback */
-static int edmac_dma_enabled = 1;
+/* Set to 1 to enable EDMAC DMA copy, 0 for CPU fallback.
+ * Disabled (0) on M50: hijacking DarkCurCor channels (0x3D/0x18) during LiveView
+ * conflicts with Canon's image sensor pipeline and causes Err 70.
+ * The CPU fallback takes ~3ms and is completely stable. */
+static int edmac_dma_enabled = 0;
 
 static void edmac_copy_rectangle_cpu(
    uint8_t *dst, uint8_t *src,

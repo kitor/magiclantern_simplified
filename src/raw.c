@@ -719,90 +719,7 @@ static int raw_lv_buffer_size = 0;
  * timer has elapsed.  In between, the previous (or default) height is
  * returned so callers are never stalled.
  */
-#define M50_MIN_RAW_HEIGHT   838   /* known minimum across tested modes       */
-#define M50_MAX_RAW_PROBE   2000   /* stop probing here                       */
 #define M50_RAW_PITCH       3668   /* bytes/line (14-bit packed, 2096 pixels) */
-#define M50_PROBE_WAIT_MS    200   /* delay before checking sentinel          */
-
-enum { M50_PROBE_IDLE = 0, M50_PROBE_WAIT, M50_PROBE_DONE };
-
-static int m50_probe_state    = M50_PROBE_IDLE;
-static int m50_probe_height   = M50_MIN_RAW_HEIGHT;
-static int m50_probe_start_ms = 0;
-static int m50_probe_mode_key = -1;
-
-/* Encode the current Canon video mode as a single integer so we can
- * detect mode changes cheaply. */
-static int m50_video_mode_key(void)
-{
-    return (video_mode_resolution << 16) | (video_mode_crop << 8) | video_mode_fps;
-}
-
-/* Maximum probeable line given the buffer allocation at 0xD1C4. */
-static int m50_probe_max_line(void)
-{
-    uint32_t alloc = *(volatile uint32_t *)0x0000D1C4;
-    int limit = M50_MAX_RAW_PROBE;
-    if (alloc > 0 && alloc < 0x02000000)
-    {
-        int buf_lines = alloc / M50_RAW_PITCH;
-        if (limit > buf_lines) limit = buf_lines;
-    }
-    return limit;
-}
-
-/* Step 1: zero the sentinel region (lines MIN_HEIGHT .. max_line). */
-static void m50_probe_zero(void)
-{
-    volatile uint32_t *rs = (volatile uint32_t *)0x0000D1C8;
-    uint32_t buf_addr = rs[0];
-    if (!buf_addr) return;
-
-    /* buf_addr is already ≥ 0x40000000 → UNCACHEABLE.
-     * Both our memset and Canon's DMA bypass the CPU cache. */
-    uint8_t *buf = (uint8_t *)(uintptr_t)buf_addr;
-
-    int max_line = m50_probe_max_line();
-    int zero_bytes = (max_line - M50_MIN_RAW_HEIGHT) * M50_RAW_PITCH;
-    if (zero_bytes > 0)
-    {
-        memset(buf + M50_MIN_RAW_HEIGHT * M50_RAW_PITCH, 0, zero_bytes);
-    }
-}
-
-/* Step 2: scan the sentinel to find the first line that stayed zero. */
-static int m50_probe_check(void)
-{
-    volatile uint32_t *rs = (volatile uint32_t *)0x0000D1C8;
-    uint32_t buf_addr = rs[0];
-    if (!buf_addr) return M50_MIN_RAW_HEIGHT;
-
-    uint8_t *buf = (uint8_t *)(uintptr_t)buf_addr;
-    int max_line = m50_probe_max_line();
-
-    int detected = M50_MIN_RAW_HEIGHT;
-    for (int y = M50_MIN_RAW_HEIGHT; y < max_line; y++)
-    {
-        uint32_t *row = (uint32_t *)(buf + y * M50_RAW_PITCH);
-        int has_data = 0;
-
-        /* Sample ~32 evenly-spaced words per line.  Skip the first
-         * 16 bytes (possible DMA padding / alignment artifacts). */
-        int step = M50_RAW_PITCH / (32 * 4);
-        if (step < 1) step = 1;
-        for (int i = 4; i < M50_RAW_PITCH / 4; i += step)
-        {
-            if (row[i] != 0) { has_data = 1; break; }
-        }
-
-        if (has_data)
-            detected = y + 1;
-        else
-            break;              /* first zero line → DMA boundary */
-    }
-
-    return detected;
-}
 #endif /* CONFIG_M50 */
 
 /* our default LiveView buffer (which can be DEFAULT_RAW_BUFFER or allocated) */
@@ -885,68 +802,21 @@ static int raw_lv_get_resolution(int* width, int* height)
     return 1;
 
 #elif defined(CONFIG_M50)
-    /* DIGIC 8: hardcoded pitch, dynamic height via zero-sentinel probe.
+    /* DIGIC 8 M50: Fixed pitch, safe height derived from Canon's buffer allocation.
      * Width is always 2096 pixels (3668 bytes / line, 14-bit packed).
-     * Height is probed per video mode — Canon may output more lines in
-     * 4K crop mode than in 1080p.  Falls back to 838 (the known minimum
-     * confirmed via RAM dump comparison). */
+     * Standard 1080p is 1164 lines (0x4125F0 / 3668 = 1164).
+     * No sentinel zeroing or active memory modification. */
     *width = M50_RAW_PITCH * 8 / 14;   /* 2096 */
 
-    /* If recording is in progress, never re-probe, zero memory, or change height!
-     * Changing height mid-recording terminates the clip early via raw_lv_settings_still_valid. */
-    if (RECORDING)
+    uint32_t alloc = *(volatile uint32_t *)0x0000D1C4;
+    if (is_movie_mode() && alloc >= 0x200000 && alloc < 0x02000000)
     {
-        *height = m50_probe_height;
-        return 1;
+        *height = alloc / M50_RAW_PITCH;
     }
-
-    /* Detect video-mode changes and re-probe */
-    int mk = m50_video_mode_key();
-    if (mk != m50_probe_mode_key)
+    else
     {
-        m50_probe_state = M50_PROBE_IDLE;
-        m50_probe_mode_key = mk;
+        *height = 1164;
     }
-
-    switch (m50_probe_state)
-    {
-        case M50_PROBE_IDLE:
-        {
-            m50_probe_zero();
-            m50_probe_start_ms = get_ms_clock();
-            m50_probe_state = M50_PROBE_WAIT;
-            /* Log mode info once per probe cycle */
-            printf("[RAW] M50 probe: zeroed sentinel (res=%d crop=%d fps=%d)\n",
-                   video_mode_resolution, video_mode_crop, video_mode_fps);
-            break;
-        }
-
-        case M50_PROBE_WAIT:
-        {
-            if ((get_ms_clock() - m50_probe_start_ms) > M50_PROBE_WAIT_MS)
-            {
-                int h = m50_probe_check();
-                m50_probe_height = h;
-                m50_probe_state = M50_PROBE_DONE;
-                printf("[RAW] M50 probe: %d lines detected (res=%d crop=%d fps=%d)%s\n",
-                       h, video_mode_resolution, video_mode_crop, video_mode_fps,
-                       (h > M50_MIN_RAW_HEIGHT) ? " — EXTENDED!" : "");
-
-                /* Also log the raw state struct for analysis */
-                volatile uint32_t *rs = (volatile uint32_t *)0x0000D1C4;
-                printf("[RAW] M50 struct: alloc=0x%X buf=0x%X D1D8=0x%X D128=%d\n",
-                       rs[0], rs[1], rs[5],
-                       *(volatile uint32_t *)0x0000D128);
-            }
-            break;
-        }
-
-        case M50_PROBE_DONE:
-            /* cached — nothing to do */
-            break;
-    }
-
-    *height = m50_probe_height;
     return 1;
 
 #else // ~CONFIG_EDMAC_RAW_SLURP, ~CONFIG_M50
@@ -965,21 +835,9 @@ static int raw_lv_get_resolution(int* width, int* height)
 }
 
 #ifdef CONFIG_M50
-/* File-based crash breadcrumb for raw_lv_enable chain.
- * Writes individual files B:/STEP70.TXT etc so they survive crashes. */
-static int raw_dbg_step_counter = 70;
 static void raw_dbg_log(const char* msg)
 {
-    char fname[40];
-    int step = raw_dbg_step_counter++;
-    snprintf(fname, sizeof(fname), "B:/STEP%02d.TXT", step);
-    FILE* f = FIO_CreateFile(fname);
-    if (f) {
-        char buf[80];
-        int len = snprintf(buf, sizeof(buf), "step%d: %s\n", step, msg);
-        FIO_WriteFile(f, buf, len);
-        FIO_CloseFile(f);
-    }
+    (void)msg;
 }
 
 /*
