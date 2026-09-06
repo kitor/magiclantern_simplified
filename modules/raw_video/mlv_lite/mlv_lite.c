@@ -240,6 +240,8 @@ static int bpp_digital_gain()
 
 static int raw_digital_gain_ok()
 {
+    if (is_m50) return 0;
+
     if (output_format > OUTPUT_14BIT_LOSSLESS)
     {
         /* fixme: not working in modes with higher resolution */
@@ -930,6 +932,8 @@ static MENU_UPDATE_FUNC(write_speed_update)
 static REQUIRES(settings_sem)
 void setup_bit_depth_digital_gain(int force_off)
 {
+    if (is_m50) return;
+
     static int prev_bpp_d = 0;
     int bpp_d = BPP_D;
 
@@ -2798,16 +2802,11 @@ static void FAST repack_14_to_10(uint8_t *dst, const uint8_t *src, int num_pixel
         uint32_t s6 = src[6];
         src += 7;
 
-        uint32_t p0 = (s0 | ((s1 & 0x3F) << 8)) >> 4;
-        uint32_t p1 = ((s1 >> 6) | (s2 << 2) | ((s3 & 0x0F) << 10)) >> 4;
-        uint32_t p2 = ((s3 >> 4) | (s4 << 4) | ((s5 & 0x03) << 12)) >> 4;
-        uint32_t p3 = ((s5 >> 2) | (s6 << 6)) >> 4;
-
-        dst[0] = p0;
-        dst[1] = (p0 >> 8) | ((p1 & 0x3F) << 2);
-        dst[2] = (p1 >> 6) | ((p2 & 0x0F) << 4);
-        dst[3] = (p2 >> 4) | ((p3 & 0x03) << 6);
-        dst[4] = p3 >> 2;
+        dst[0] = (s0 >> 4) | (s1 << 4);
+        dst[1] = ((s1 >> 4) & 0x03) | (s2 & 0xFC);
+        dst[2] = (s3 & 0x0F) | (s4 << 4);
+        dst[3] = ((s4 >> 4) & 0x0F) | ((s5 & 0x03) << 4) | (s5 & 0xC0);
+        dst[4] = s6;
         dst += 5;
     }
 }

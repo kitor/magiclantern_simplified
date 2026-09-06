@@ -2498,10 +2498,16 @@ int raw_lv_settings_still_valid()
 {
     /* should be fast enough for vsync calls */
     if (!lv_raw_enabled) return 0;
+#ifdef CONFIG_M50
+    /* On M50, raw geometry is fixed. Transient resolution reads during vsync
+     * must not kill active recording clips. */
+    return 1;
+#else
     int w, h;
     if (!raw_lv_get_resolution(&w, &h)) return 0;
     if (w != raw_info.width || h != raw_info.height) return 0;
     return 1;
+#endif
 }
 #endif // CONFIG_RAW_LIVEVIEW
 
@@ -3027,6 +3033,10 @@ void raw_lv_request_bpp(int bpp)
 
 void raw_lv_request_digital_gain(int gain)
 {
+#ifdef CONFIG_M50
+    (void)gain;
+    return;
+#endif
     take_semaphore(raw_sem, 0);
 
     ASSERT(lv_raw_enabled);
