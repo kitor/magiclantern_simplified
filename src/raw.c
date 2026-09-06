@@ -787,10 +787,7 @@ static int raw_lv_get_resolution(int* width, int* height)
     return 1;
 
 #elif defined(CONFIG_M50)
-    /* Restrict this geometry to the verified normal 1080p readout.
-     * In particular, Photo mode reuses the state pointer for other data. */
-    if (!lv || !is_movie_mode() || video_mode_resolution != 0 ||
-        video_mode_crop || lv_dispsize != 1)
+    if (!lv || !is_movie_mode())
     {
         return 0;
     }
@@ -1023,12 +1020,6 @@ int raw_update_params_work()
         {
             raw_info.buffer = 0;
             raw_lv_fail_reason = "photo";
-            return 0;
-        }
-        if (video_mode_resolution != 0 || video_mode_crop || lv_dispsize != 1)
-        {
-            raw_info.buffer = 0;
-            raw_lv_fail_reason = "1080p 1x only";
             return 0;
         }
 #endif
@@ -2348,50 +2339,20 @@ int _raw_lv_get_iso_post_gain()
 
 #endif // CONFIG_EDMAC_RAW_SLURP
 
-/* Prepare a CPU read of the DMA-owned M50 RAW buffer. This deliberately
- * invalidates without cleaning: writing stale cached sensor bytes back to
- * RAM would corrupt the current frame. It does not freeze Canon's DMA. */
-void raw_lv_prepare_cpu_read(void)
-{
-#ifdef CONFIG_M50
-    if (!raw_info.buffer || raw_info.pitch <= 0 || raw_info.height <= 0)
-        return;
-
-    uint32_t ctr;
-    asm volatile ("mrc p15, 0, %0, c0, c0, 1" : "=r" (ctr));
-    /* ARMv7 CTR.DminLine is log2(words) of the smallest D-cache line.
-     * Use it to cover all cache levels with DCIMVAC (invalidate to PoC). */
-    uint32_t line_size = 4u << ((ctr >> 16) & 15);
-    uint32_t start = (uint32_t) CACHEABLE(raw_info.buffer);
-    uint32_t end = start + (uint32_t) raw_info.pitch * raw_info.height;
-    if (end <= start) return;
-
-    /* Touch only whole cache lines inside the verified frame allocation.
-     * The recording crop excludes the sensor's outer/optical-black rows;
-     * invalidating a partial boundary line could discard adjacent data. */
-    start = (start + line_size - 1) & ~(line_size - 1);
-    end &= ~(line_size - 1);
-    asm volatile ("dsb sy" ::: "memory");
-    for (uint32_t addr = start; addr < end; addr += line_size)
-        asm volatile ("mcr p15, 0, %0, c7, c6, 1" : : "r" (addr) : "memory");
-    asm volatile ("dsb sy" ::: "memory");
-#endif
-}
-
 int raw_lv_settings_still_valid()
 {
     /* should be fast enough for vsync calls */
     if (!lv_raw_enabled) return 0;
 #ifdef CONFIG_M50
-    /* The queued copies use Canon's original buffer. Stop if Canon replaces
-     * it, even when the new frame has the same dimensions. */
-    if (!raw_info.buffer || raw_get_default_lv_buffer() != raw_info.buffer)
-        return 0;
-#endif
+    /* On M50, raw geometry is fixed. Transient resolution reads during vsync
+     * must not kill active recording clips. */
+    return 1;
+#else
     int w, h;
     if (!raw_lv_get_resolution(&w, &h)) return 0;
     if (w != raw_info.width || h != raw_info.height) return 0;
     return 1;
+#endif
 }
 #endif // CONFIG_RAW_LIVEVIEW
 

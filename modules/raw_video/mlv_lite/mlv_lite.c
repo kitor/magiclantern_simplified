@@ -367,7 +367,6 @@ static volatile                 uint32_t skip_frames = 0;
 
 /* for compress_task */
 static struct msg_queue * compress_mq = 0;
-static struct semaphore *m50_copy_stopped = NULL;
 /* Covers both a queued capture and its complete CPU copy/repack. The EDMAC
  * flag only covers the memcpy branch and cannot protect the 10/12-bit worker. */
 static volatile int m50_copy_pending = 0;
@@ -2876,9 +2875,6 @@ static void compress_task()
 
             edmac_stop_spy();
 
-            if (is_m50 && RAW_IS_FINISHING)
-                give_semaphore(m50_copy_stopped);
-
             continue;
         }
 
@@ -2893,15 +2889,6 @@ static void compress_task()
             continue;
         }
 
-        /* A message may have been queued before Canon changed modes or
-         * replaced its buffer. Do not dereference that old source pointer. */
-        if (is_m50 && (RAW_IS_FINISHING || !raw_lv_settings_still_valid()))
-        {
-            raw_recording_state = RAW_FINISHING;
-            m50_copy_pending = 0;
-            continue;
-        }
-
         rec_dbg_log("compress_task: got slot message");
 
         int fullsize_index = msg >> 16;
@@ -2912,7 +2899,6 @@ static void compress_task()
 
         void* out_ptr = slots[slot_index].ptr + VIDF_HDR_SIZE;
         void* fullSizeBuffer = fullsize_buffers[fullsize_index];
-        if (is_m50) raw_lv_prepare_cpu_read();
 
         /* GET_DIGIC_TIMER is broken on DIGIC 8 (register 0xC0242014 invalid) */
         edmac_start_clock = is_m50 ? (uint32_t)(get_ms_clock() * 1000) : GET_DIGIC_TIMER();
@@ -3337,8 +3323,9 @@ void init_mlv_chunk_headers(struct raw_info *raw_info)
         file_hdr[i].audioClass = 0;
         file_hdr[i].videoFrameCount = 0; //autodetect
         file_hdr[i].audioFrameCount = 0;
-        int fps = is_m50 && video_mode_fps > 0
-            ? video_mode_fps * 1000 : fps_get_current_x1000();
+        int fps = is_m50
+            ? (video_mode_fps > 0 ? video_mode_fps * 1000 : 25000)
+            : fps_get_current_x1000();
         if (fps == 0)
             file_hdr[i].sourceFpsNom = 1;
         else
@@ -3460,16 +3447,11 @@ static REQUIRES(RawRecTask)
 void finish_chunk(FILE *f, int card_index)
 {
     file_hdr[card_index].videoFrameCount = chunk_frame_count[card_index];
-    if (is_m50 && m50_saved_timing[card_index].count == chunk_frame_count[card_index])
+    if (is_m50)
     {
-        /* Nominal sensor FPS is not the saved cadence when CPU or card
-         * throughput drops frames. Derive playback rate from written VIDFs. */
-        uint32_t fps = m50_timing_fps_x1000(&m50_saved_timing[card_index]);
-        if (fps)
-        {
-            file_hdr[card_index].sourceFpsNom = fps;
-            file_hdr[card_index].sourceFpsDenom = 1000;
-        }
+        int fps = (video_mode_fps > 0 ? video_mode_fps : 25) * 1000;
+        file_hdr[card_index].sourceFpsNom = fps;
+        file_hdr[card_index].sourceFpsDenom = 1000;
         if (skipped_frames) file_hdr[card_index].fileFlags |= 2;
     }
     
@@ -4115,18 +4097,7 @@ abort_and_check_early_stop:
     wait_lv_frames(2);
 
     /* signal end of recording to the compression task */
-    if (is_m50)
-    {
-        /* LiveView may already be stopped, so waiting for two frames is not
-         * a barrier. The FIFO stop acknowledgement proves that the worker
-         * finished its current CPU copy and discarded queued captures. */
-        while (msg_queue_post(compress_mq, INT_MIN)) msleep(10);
-        take_semaphore(m50_copy_stopped, 0);
-    }
-    else
-    {
-        msg_queue_post(compress_mq, INT_MIN);
-    }
+    msg_queue_post(compress_mq, INT_MIN);
 
     set_recording_custom(CUSTOM_RECORDING_NOT_RECORDING);
 
@@ -4932,11 +4903,6 @@ static unsigned int raw_rec_init()
     lossless_init();
 
     settings_sem = create_named_semaphore(NULL, SEM_CREATE_UNLOCKED);
-    if (is_m50)
-    {
-        m50_copy_stopped = create_named_semaphore("raw_copy_done", SEM_CREATE_LOCKED);
-        ASSERT(m50_copy_stopped);
-    }
     if (is_card_spanning_possible)
         write_queue_sem = create_named_semaphore("queue_sem", SEM_CREATE_UNLOCKED);
 

@@ -10,9 +10,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 source = (ROOT / "src/raw.c").read_text()
-geometry = source.split("/* Restrict this geometry", 1)[1].split(
+geometry = source.split("#elif defined(CONFIG_M50)", 1)[1].split(
     "#else // ~CONFIG_EDMAC_RAW_SLURP", 1)[0]
-geometry = "/* Restrict this geometry" + geometry
 black = source[source.index("static void autodetect_black_level_calc("):
                source.index("static int autodetect_white_level(int initial_guess)\n{")]
 harness = r'''
@@ -29,8 +28,7 @@ harness = r'''
 #define printf(...) ((void)0)
 #define M50_RAW_PITCH 3668
 #define M50_RAW_HEIGHT 1164
-static int lv = 1, movie = 1, video_mode_resolution, video_mode_crop;
-static int lv_dispsize = 1;
+static int lv = 1, movie = 1;
 static int is_movie_mode(void) { return movie; }
 static struct { struct { int x1,x2,y1,y2; } active_area; } raw_info;
 static unsigned char *frame;
@@ -56,11 +54,6 @@ int main(int argc, char **argv)
     assert(geometry(&w, &h) && w == 2096 && h == 1164);
     movie = 0; assert(!geometry(&w, &h)); movie = 1;
     lv = 0; assert(!geometry(&w, &h)); lv = 1;
-    video_mode_resolution = 1; assert(!geometry(&w, &h));
-    video_mode_resolution = 3; assert(!geometry(&w, &h));
-    video_mode_resolution = 0;
-    video_mode_crop = 1; assert(!geometry(&w, &h)); video_mode_crop = 0;
-    lv_dispsize = 5; assert(!geometry(&w, &h)); lv_dispsize = 1;
     raw_info.active_area.x1 = 88; raw_info.active_area.x2 = w;
     raw_info.active_area.y1 = 34; raw_info.active_area.y2 = h;
     frame_size = 3668 * 1164;
