@@ -3449,7 +3449,13 @@ void finish_chunk(FILE *f, int card_index)
     file_hdr[card_index].videoFrameCount = chunk_frame_count[card_index];
     if (is_m50)
     {
-        int fps = (video_mode_fps > 0 ? video_mode_fps : 25) * 1000;
+        /* Nominal sensor FPS is not the saved cadence when CPU or card
+         * throughput drops frames. Derive playback rate from written VIDFs. */
+        uint32_t fps = 0;
+        if (m50_saved_timing[card_index].count >= 2)
+            fps = m50_timing_fps_x1000(&m50_saved_timing[card_index]);
+        if (!fps)
+            fps = (video_mode_fps > 0 ? video_mode_fps : 25) * 1000;
         file_hdr[card_index].sourceFpsNom = fps;
         file_hdr[card_index].sourceFpsDenom = 1000;
         if (skipped_frames) file_hdr[card_index].fileFlags |= 2;
@@ -4906,7 +4912,7 @@ static unsigned int raw_rec_init()
     if (is_card_spanning_possible)
         write_queue_sem = create_named_semaphore("queue_sem", SEM_CREATE_UNLOCKED);
 
-    int compress_prio = is_m50 ? 0x1A : 0x0F;
+    int compress_prio = is_m50 ? 0x16 : 0x0F;
     ASSERT(((uint32_t)task_create("compress_task", compress_prio, 0x1000, compress_task, (void*)0) & 1) == 0);
 
     return 0;
