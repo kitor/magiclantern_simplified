@@ -4912,7 +4912,7 @@ static unsigned int raw_rec_init()
     if (is_card_spanning_possible)
         write_queue_sem = create_named_semaphore("queue_sem", SEM_CREATE_UNLOCKED);
 
-    int compress_prio = is_m50 ? 0x16 : 0x0F;
+    int compress_prio = is_m50 ? 0x1A : 0x0F;
     ASSERT(((uint32_t)task_create("compress_task", compress_prio, 0x1000, compress_task, (void*)0) & 1) == 0);
 
     return 0;
