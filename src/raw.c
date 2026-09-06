@@ -696,30 +696,14 @@ static int raw_lv_buffer_size = 0;
 #endif
 
 #ifdef CONFIG_M50
-/*
- * M50 Dynamic Raw Height Probe — asynchronous zero-sentinel method.
- *
- * Canon's raw LV buffer is allocated for ~3681 lines (13.5MB at 3668 B/line)
- * but DMA only fills part of it each frame.  Stale data from previous
- * allocations sits beyond the active region, so a simple "scan for
- * non-zero" probe does NOT work (it inflates the count to the buffer limit).
- *
- * Zero-sentinel method:
- *   1. Memset lines beyond a known minimum to zero (UNCACHEABLE address,
- *      so both our write and DMA bypass L1/L2 cache).
- *   2. Wait ~200 ms (≥ 5 frames at 25 fps) for Canon's DMA to overwrite
- *      whatever lines it actually outputs.
- *   3. Scan forward from the minimum: every line that received non-zero
- *      data was written by DMA; the first still-zero line marks the
- *      boundary.
- *   4. Cache the result until the video mode changes.
- *
- * The probe is non-blocking: zeroing happens on one call to
- * raw_lv_get_resolution(), the check happens on a later call once the
- * timer has elapsed.  In between, the previous (or default) height is
- * returned so callers are never stalled.
- */
-#define M50_RAW_PITCH       3668   /* bytes/line (14-bit packed, 2096 pixels) */
+/* Normal 1080p readout: confirmed by IMG_3387.MM1 (4,269,552 bytes)
+ * and the earlier 1920x1080 MLV captures. The 838-line dumps describe
+ * a shorter readout and must not cap the normal movie recording mode.  The value at
+ * 0xD1C4 describes an allocation pool, not the length of a single frame.
+ * Do not derive frame height or a writable probe boundary from that value.
+ * Other readout modes need their own verified geometry. */
+#define M50_RAW_PITCH       3668   /* 2096 pixels, Canon packed 14-bit */
+#define M50_RAW_HEIGHT      1164
 #endif /* CONFIG_M50 */
 
 /* our default LiveView buffer (which can be DEFAULT_RAW_BUFFER or allocated) */
@@ -729,6 +713,7 @@ static void* raw_get_default_lv_buffer()
     /* DIGIC 8: EDMAC MMIO hangs shamem_read. Read buffer pointer directly
      * from Canon's raw state struct in cacheable RAM at 0x0000D1C8.
      * Confirmed live on camera via RawProbe v8b (LOG000.LOG). */
+    if (!lv || !is_movie_mode()) return 0;
     volatile uint32_t *raw_state = (volatile uint32_t *)0x0000D1C8;
     uint32_t buf = raw_state[0];
     return buf ? CACHEABLE(buf) : 0;
@@ -802,21 +787,16 @@ static int raw_lv_get_resolution(int* width, int* height)
     return 1;
 
 #elif defined(CONFIG_M50)
-    /* DIGIC 8 M50: Fixed pitch, safe height derived from Canon's buffer allocation.
-     * Width is always 2096 pixels (3668 bytes / line, 14-bit packed).
-     * Standard 1080p is 1164 lines (0x4125F0 / 3668 = 1164).
-     * No sentinel zeroing or active memory modification. */
-    *width = M50_RAW_PITCH * 8 / 14;   /* 2096 */
+    /* Restrict this geometry to the verified normal 1080p readout.
+     * In particular, Photo mode reuses the state pointer for other data. */
+    if (!lv || !is_movie_mode() || video_mode_resolution != 0 ||
+        video_mode_crop || lv_dispsize != 1)
+    {
+        return 0;
+    }
 
-    uint32_t alloc = *(volatile uint32_t *)0x0000D1C4;
-    if (is_movie_mode() && alloc >= 0x200000 && alloc < 0x02000000)
-    {
-        *height = alloc / M50_RAW_PITCH;
-    }
-    else
-    {
-        *height = 1164;
-    }
+    *width = M50_RAW_PITCH * 8 / 14;
+    *height = M50_RAW_HEIGHT;
     return 1;
 
 #else // ~CONFIG_EDMAC_RAW_SLURP, ~CONFIG_M50
@@ -1037,6 +1017,21 @@ int raw_update_params_work()
 
     if (lv)
     {
+#ifdef CONFIG_M50
+        /* Reject before obtaining or sampling Canon's movie buffer. */
+        if (!mv)
+        {
+            raw_info.buffer = 0;
+            raw_lv_fail_reason = "photo";
+            return 0;
+        }
+        if (video_mode_resolution != 0 || video_mode_crop || lv_dispsize != 1)
+        {
+            raw_info.buffer = 0;
+            raw_lv_fail_reason = "1080p 1x only";
+            return 0;
+        }
+#endif
 #ifdef CONFIG_RAW_LIVEVIEW
         if (!raw_lv_is_enabled())
         {
@@ -2353,20 +2348,50 @@ int _raw_lv_get_iso_post_gain()
 
 #endif // CONFIG_EDMAC_RAW_SLURP
 
+/* Prepare a CPU read of the DMA-owned M50 RAW buffer. This deliberately
+ * invalidates without cleaning: writing stale cached sensor bytes back to
+ * RAM would corrupt the current frame. It does not freeze Canon's DMA. */
+void raw_lv_prepare_cpu_read(void)
+{
+#ifdef CONFIG_M50
+    if (!raw_info.buffer || raw_info.pitch <= 0 || raw_info.height <= 0)
+        return;
+
+    uint32_t ctr;
+    asm volatile ("mrc p15, 0, %0, c0, c0, 1" : "=r" (ctr));
+    /* ARMv7 CTR.DminLine is log2(words) of the smallest D-cache line.
+     * Use it to cover all cache levels with DCIMVAC (invalidate to PoC). */
+    uint32_t line_size = 4u << ((ctr >> 16) & 15);
+    uint32_t start = (uint32_t) CACHEABLE(raw_info.buffer);
+    uint32_t end = start + (uint32_t) raw_info.pitch * raw_info.height;
+    if (end <= start) return;
+
+    /* Touch only whole cache lines inside the verified frame allocation.
+     * The recording crop excludes the sensor's outer/optical-black rows;
+     * invalidating a partial boundary line could discard adjacent data. */
+    start = (start + line_size - 1) & ~(line_size - 1);
+    end &= ~(line_size - 1);
+    asm volatile ("dsb sy" ::: "memory");
+    for (uint32_t addr = start; addr < end; addr += line_size)
+        asm volatile ("mcr p15, 0, %0, c7, c6, 1" : : "r" (addr) : "memory");
+    asm volatile ("dsb sy" ::: "memory");
+#endif
+}
+
 int raw_lv_settings_still_valid()
 {
     /* should be fast enough for vsync calls */
     if (!lv_raw_enabled) return 0;
 #ifdef CONFIG_M50
-    /* On M50, raw geometry is fixed. Transient resolution reads during vsync
-     * must not kill active recording clips. */
-    return 1;
-#else
+    /* The queued copies use Canon's original buffer. Stop if Canon replaces
+     * it, even when the new frame has the same dimensions. */
+    if (!raw_info.buffer || raw_get_default_lv_buffer() != raw_info.buffer)
+        return 0;
+#endif
     int w, h;
     if (!raw_lv_get_resolution(&w, &h)) return 0;
     if (w != raw_info.width || h != raw_info.height) return 0;
     return 1;
-#endif
 }
 #endif // CONFIG_RAW_LIVEVIEW
 

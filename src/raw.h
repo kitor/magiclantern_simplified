@@ -158,6 +158,8 @@ int raw_lv_shave_right(int offset);
 
 /* quick check whether the settings from raw_info are still valid (for lv vsync calls) */
 int raw_lv_settings_still_valid();
+/* Invalidate DMA-written sensor data before reading through the CPU cache. */
+void raw_lv_prepare_cpu_read(void);
 
 void raw_set_geometry(int width, int height, int skip_left, int skip_right, int skip_top, int skip_bottom);
 void raw_force_aspect_ratio(int factor_x, int factor_y);

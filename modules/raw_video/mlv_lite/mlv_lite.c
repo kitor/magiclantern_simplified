@@ -67,6 +67,7 @@
 #include "focus.h"
 #include "fps.h"
 #include "../mlv_rec/mlv.h"
+#include "m50_timing.h"
 #include "../mlv_rec/mlv_rec_interface.h"
 #include "../../trace/trace.h"
 #include "powersave.h"
@@ -366,9 +367,14 @@ static volatile                 uint32_t skip_frames = 0;
 
 /* for compress_task */
 static struct msg_queue * compress_mq = 0;
+static struct semaphore *m50_copy_stopped = NULL;
+/* Covers both a queued capture and its complete CPU copy/repack. The EDMAC
+ * flag only covers the memcpy branch and cannot protect the 10/12-bit worker. */
+static volatile int m50_copy_pending = 0;
 
 static GUARDED_BY(RawRecTask)   mlv_file_hdr_t file_hdr[CARD_COUNT];
 static GUARDED_BY(RawRecTask)   mlv_rawi_hdr_t rawi_hdr;
+static struct m50_saved_timing m50_saved_timing[CARD_COUNT];
 static GUARDED_BY(RawRecTask)   mlv_rawc_hdr_t rawc_hdr;
 static GUARDED_BY(RawRecTask)   mlv_idnt_hdr_t idnt_hdr;
 static GUARDED_BY(RawRecTask)   mlv_expo_hdr_t expo_hdr;
@@ -1596,7 +1602,8 @@ int setup_buffers()
     {
         /* M50: raw_lv_redirect_edmac is a no-op, so double-buffering is impossible.
          * Canon always DMA's into raw_info.buffer. Both pointers must be the same.
-         * Use CACHEABLE so the CPU sees current data; DMA override flushes cache. */
+         * Keep the proven cacheable mapping; cache freshness is independent
+         * of the copy worker's exclusion and requires explicit maintenance. */
         printf("M50: single-buffer mode (redirect is no-op).\n");
         fullsize_buffers[0] = CACHEABLE(raw_info.buffer);
         fullsize_buffers[1] = CACHEABLE(raw_info.buffer);
@@ -2745,64 +2752,67 @@ static void rec_dbg_log(const char* msg)
     (void)msg;
 }
 
-/* Software bit-repackers for DIGIC 8 (which lacks PACK32_MODE EDMAC hardware).
- * Converts 14-bit packed sensor samples into standard 12-bit or 10-bit bitstreams. */
+/* Canon RAW and uncompressed MLV store MSB-first samples in little-endian
+ * 16-bit words (see raw_pixblock in raw.h). Work in groups of eight pixels:
+ * both the 14-bit input and 10/12-bit output end on a word boundary.
+ * Recording widths are multiples of eight. Byte access avoids alignment and
+ * aliasing assumptions while reading Canon's buffer. */
+static inline uint32_t repack_load_word(const uint8_t *src)
+{
+    return src[0] | ((uint32_t)src[1] << 8);
+}
+
+static inline void repack_store_word(uint8_t *dst, uint32_t value)
+{
+    dst[0] = value;
+    dst[1] = value >> 8;
+}
+
+static inline void repack_load_14(const uint8_t *src, uint32_t *p, int shift)
+{
+    uint32_t w0 = repack_load_word(src);
+    uint32_t w1 = repack_load_word(src + 2);
+    uint32_t w2 = repack_load_word(src + 4);
+    uint32_t w3 = repack_load_word(src + 6);
+    uint32_t w4 = repack_load_word(src + 8);
+    uint32_t w5 = repack_load_word(src + 10);
+    uint32_t w6 = repack_load_word(src + 12);
+    p[0] = (w0 >> 2) >> shift;
+    p[1] = (((w0 & 3) << 12) | (w1 >> 4)) >> shift;
+    p[2] = (((w1 & 15) << 10) | (w2 >> 6)) >> shift;
+    p[3] = (((w2 & 63) << 8) | (w3 >> 8)) >> shift;
+    p[4] = (((w3 & 255) << 6) | (w4 >> 10)) >> shift;
+    p[5] = (((w4 & 1023) << 4) | (w5 >> 12)) >> shift;
+    p[6] = (((w5 & 4095) << 2) | (w6 >> 14)) >> shift;
+    p[7] = (w6 & 16383) >> shift;
+}
+
 static void FAST repack_14_to_12(uint8_t *dst, const uint8_t *src, int num_pixels)
 {
-    /* 4 pixels: 7 bytes 14-bit input -> 6 bytes 12-bit output */
-    int chunks = num_pixels / 4;
-    for (int i = 0; i < chunks; i++)
+    for (int i = 0; i < num_pixels / 8; i++, src += 14, dst += 12)
     {
-        uint32_t s0 = src[0];
-        uint32_t s1 = src[1];
-        uint32_t s2 = src[2];
-        uint32_t s3 = src[3];
-        uint32_t s4 = src[4];
-        uint32_t s5 = src[5];
-        uint32_t s6 = src[6];
-        src += 7;
-
-        uint32_t p0 = (s0 | ((s1 & 0x3F) << 8)) >> 2;
-        uint32_t p1 = ((s1 >> 6) | (s2 << 2) | ((s3 & 0x0F) << 10)) >> 2;
-        uint32_t p2 = ((s3 >> 4) | (s4 << 4) | ((s5 & 0x03) << 12)) >> 2;
-        uint32_t p3 = ((s5 >> 2) | (s6 << 6)) >> 2;
-
-        dst[0] = p0;
-        dst[1] = (p0 >> 8) | ((p1 & 0x0F) << 4);
-        dst[2] = p1 >> 4;
-        dst[3] = p2;
-        dst[4] = (p2 >> 8) | ((p3 & 0x0F) << 4);
-        dst[5] = p3 >> 4;
-        dst += 6;
+        uint32_t p[8];
+        repack_load_14(src, p, 2);
+        repack_store_word(dst,      (p[0] << 4) | (p[1] >> 8));
+        repack_store_word(dst + 2,  (p[1] << 8) | (p[2] >> 4));
+        repack_store_word(dst + 4,  (p[2] << 12) | p[3]);
+        repack_store_word(dst + 6,  (p[4] << 4) | (p[5] >> 8));
+        repack_store_word(dst + 8,  (p[5] << 8) | (p[6] >> 4));
+        repack_store_word(dst + 10, (p[6] << 12) | p[7]);
     }
 }
 
 static void FAST repack_14_to_10(uint8_t *dst, const uint8_t *src, int num_pixels)
 {
-    /* 4 pixels: 7 bytes 14-bit input -> 5 bytes 10-bit output */
-    int chunks = num_pixels / 4;
-    for (int i = 0; i < chunks; i++)
+    for (int i = 0; i < num_pixels / 8; i++, src += 14, dst += 10)
     {
-        uint32_t s0 = src[0];
-        uint32_t s1 = src[1];
-        uint32_t s2 = src[2];
-        uint32_t s3 = src[3];
-        uint32_t s4 = src[4];
-        uint32_t s5 = src[5];
-        uint32_t s6 = src[6];
-        src += 7;
-
-        uint32_t p0 = (s0 | ((s1 & 0x3F) << 8)) >> 4;
-        uint32_t p1 = ((s1 >> 6) | (s2 << 2) | ((s3 & 0x0F) << 10)) >> 4;
-        uint32_t p2 = ((s3 >> 4) | (s4 << 4) | ((s5 & 0x03) << 12)) >> 4;
-        uint32_t p3 = ((s5 >> 2) | (s6 << 6)) >> 4;
-
-        dst[0] = p0;
-        dst[1] = ((p0 >> 8) & 0x03) | ((p1 & 0x3F) << 2);
-        dst[2] = ((p1 >> 6) & 0x0F) | ((p2 & 0x0F) << 4);
-        dst[3] = ((p2 >> 4) & 0x3F) | ((p3 & 0x03) << 6);
-        dst[4] = (p3 >> 2) & 0xFF;
-        dst += 5;
+        uint32_t p[8];
+        repack_load_14(src, p, 4);
+        repack_store_word(dst,     (p[0] << 6) | (p[1] >> 4));
+        repack_store_word(dst + 2, (p[1] << 12) | (p[2] << 2) | (p[3] >> 8));
+        repack_store_word(dst + 4, (p[3] << 8) | (p[4] >> 2));
+        repack_store_word(dst + 6, (p[4] << 14) | (p[5] << 4) | (p[6] >> 6));
+        repack_store_word(dst + 8, (p[6] << 10) | p[7]);
     }
 }
 
@@ -2866,6 +2876,9 @@ static void compress_task()
 
             edmac_stop_spy();
 
+            if (is_m50 && RAW_IS_FINISHING)
+                give_semaphore(m50_copy_stopped);
+
             continue;
         }
 
@@ -2876,6 +2889,16 @@ static void compress_task()
         if (RAW_IS_IDLE)
         {
             /* Recording stopped; discard stale messages to avoid accessing freed buffers */
+            if (is_m50) m50_copy_pending = 0;
+            continue;
+        }
+
+        /* A message may have been queued before Canon changed modes or
+         * replaced its buffer. Do not dereference that old source pointer. */
+        if (is_m50 && (RAW_IS_FINISHING || !raw_lv_settings_still_valid()))
+        {
+            raw_recording_state = RAW_FINISHING;
+            m50_copy_pending = 0;
             continue;
         }
 
@@ -2889,6 +2912,7 @@ static void compress_task()
 
         void* out_ptr = slots[slot_index].ptr + VIDF_HDR_SIZE;
         void* fullSizeBuffer = fullsize_buffers[fullsize_index];
+        if (is_m50) raw_lv_prepare_cpu_read();
 
         /* GET_DIGIC_TIMER is broken on DIGIC 8 (register 0xC0242014 invalid) */
         edmac_start_clock = is_m50 ? (uint32_t)(get_ms_clock() * 1000) : GET_DIGIC_TIMER();
@@ -3000,6 +3024,8 @@ static void compress_task()
         
         /* mark it as completed */
         slots[slot_index].status = SLOT_FULL;
+        asm volatile ("" ::: "memory");
+        if (is_m50) m50_copy_pending = 0;
     }
 }
 
@@ -3026,12 +3052,12 @@ void process_frame(int next_fullsize_buffer_pos)
         return;
     }
     
-    if (edmac_active)
+    if (edmac_active || (is_m50 && m50_copy_pending))
     {
         if (is_m50)
         {
-            /* M50: DMA is synchronous, so edmac_active should never be 1 here.
-             * If it is, something is very wrong — skip frame instead of stopping. */
+            /* Canon has only one live source buffer. Never queue another
+             * read while a CPU copy/repack is pending or running. */
             skipped_frames++;
             return;
         }
@@ -3074,7 +3100,7 @@ void process_frame(int next_fullsize_buffer_pos)
             /* pre-recording before trigger? don't queue frames for writing */
             /* (do nothing here) */
         }
-        else
+        else if (!is_m50)
         {
             /* send it for saving, even if it isn't done yet */
             /* (the recording thread will wait until it's done) */
@@ -3115,7 +3141,28 @@ void process_frame(int next_fullsize_buffer_pos)
     /* let's delegate it to another task */
     ASSERT(compress_mq);
     rec_dbg_log("process_frame: posting to compress_mq");
-    msg_queue_post(compress_mq, capture_slot | (next_fullsize_buffer_pos << 16));
+    if (is_m50)
+    {
+        m50_copy_pending = 1;
+        if (msg_queue_post(compress_mq, capture_slot | (next_fullsize_buffer_pos << 16)))
+        {
+            /* A rejected message must not leave an unfillable slot at the
+             * head of the writer queue. Nothing has been published yet. */
+            free_slot(capture_slot);
+            m50_copy_pending = 0;
+            skipped_frames++;
+            return;
+        }
+        if (raw_recording_state != RAW_PRE_RECORDING)
+        {
+            writing_queue[writing_queue_tail] = capture_slot;
+            INC_MOD(writing_queue_tail, COUNT(writing_queue));
+        }
+    }
+    else
+    {
+        msg_queue_post(compress_mq, capture_slot | (next_fullsize_buffer_pos << 16));
+    }
 
     /* advance to next frame */
     frame_count++;
@@ -3128,7 +3175,12 @@ unsigned int FAST raw_rec_vsync_cbr(unsigned int unused)
 {
     if (!raw_video_enabled) return 0;
     if (!compress_mq) return 0;
-    if (!is_movie_mode()) return 0;
+    if (!is_movie_mode())
+    {
+        if (is_m50 && RAW_IS_RECORDING)
+            raw_recording_state = RAW_FINISHING;
+        return 0;
+    }
 
     hack_liveview_vsync();
  
@@ -3142,8 +3194,9 @@ unsigned int FAST raw_rec_vsync_cbr(unsigned int unused)
     if (is_m50)
     {
         /* M50: raw_lv_redirect_edmac is a no-op (buffer redirect crashes EIS).
-         * Both fullsize_buffers[] point to the same Canon raw buffer.
-         * DMA copy takes ~4ms, well within 33ms frame period — no tearing. */
+         * Both fullsize_buffers[] reference one live Canon buffer. CPU copying
+         * or repacking must finish before Canon overwrites the sampled rows;
+         * frame coherence and copy timing still require on-camera validation. */
         process_frame(0);
     }
     else
@@ -3272,6 +3325,7 @@ void init_mlv_chunk_headers(struct raw_info *raw_info)
     uint64_t file_guid = mlv_generate_guid();
     for (int i = 0; i < CARD_COUNT; ++i)
     {
+        memset(&m50_saved_timing[i], 0, sizeof(m50_saved_timing[i]));
         memset(&file_hdr[i], 0, sizeof(mlv_file_hdr_t));
         mlv_init_fileheader(&file_hdr[i]);
         file_hdr[i].fileGuid = file_guid;
@@ -3283,7 +3337,8 @@ void init_mlv_chunk_headers(struct raw_info *raw_info)
         file_hdr[i].audioClass = 0;
         file_hdr[i].videoFrameCount = 0; //autodetect
         file_hdr[i].audioFrameCount = 0;
-        int fps = fps_get_current_x1000();
+        int fps = is_m50 && video_mode_fps > 0
+            ? video_mode_fps * 1000 : fps_get_current_x1000();
         if (fps == 0)
             file_hdr[i].sourceFpsNom = 1;
         else
@@ -3319,6 +3374,7 @@ void init_mlv_chunk_headers(struct raw_info *raw_info)
     /* overwrite bpp relevant information */
     rawi_hdr.raw_info.bits_per_pixel = BPP;
     rawi_hdr.raw_info.pitch = rawi_hdr.raw_info.width * BPP / 8;
+    rawi_hdr.raw_info.frame_size = rawi_hdr.raw_info.pitch * rawi_hdr.raw_info.height;
 
     /* scale black and white levels, minimizing the roundoff error */
     int black14 = rawi_hdr.raw_info.black_level;
@@ -3404,6 +3460,18 @@ static REQUIRES(RawRecTask)
 void finish_chunk(FILE *f, int card_index)
 {
     file_hdr[card_index].videoFrameCount = chunk_frame_count[card_index];
+    if (is_m50 && m50_saved_timing[card_index].count == chunk_frame_count[card_index])
+    {
+        /* Nominal sensor FPS is not the saved cadence when CPU or card
+         * throughput drops frames. Derive playback rate from written VIDFs. */
+        uint32_t fps = m50_timing_fps_x1000(&m50_saved_timing[card_index]);
+        if (fps)
+        {
+            file_hdr[card_index].sourceFpsNom = fps;
+            file_hdr[card_index].sourceFpsDenom = 1000;
+        }
+        if (skipped_frames) file_hdr[card_index].fileFlags |= 2;
+    }
     
     /* call the CBRs which may update fields */
     mlv_rec_call_cbr(MLV_REC_EVENT_BLOCK, (mlv_hdr_t *)&file_hdr[card_index]);
@@ -3412,6 +3480,7 @@ void finish_chunk(FILE *f, int card_index)
     FIO_WriteFile(f, &file_hdr[card_index], file_hdr[card_index].blockSize);
     FIO_CloseFile(f);
     chunk_frame_count[card_index] = 0;
+    memset(&m50_saved_timing[card_index], 0, sizeof(m50_saved_timing[card_index]));
 }
 
 /* This saves a group of frames, also taking care of file splitting if required.
@@ -3528,6 +3597,23 @@ int write_frames(FILE **pf, void *ptr, int group_size, int num_frames, int card_
         chunk_frame_count[card_index] += num_frames;
     }
     
+    if (is_m50 && num_frames > 0)
+    {
+        /* Account only after the complete group was successfully written,
+         * including when it had to be retried in a new chunk. */
+        uint8_t *block = ptr;
+        int remaining = group_size;
+        while (remaining >= (int)sizeof(mlv_hdr_t))
+        {
+            mlv_hdr_t *hdr = (mlv_hdr_t *)block;
+            if (hdr->blockSize < sizeof(mlv_hdr_t) || hdr->blockSize > (uint32_t)remaining)
+                break;
+            if (!memcmp(hdr->blockType, "VIDF", 4))
+                m50_timing_add(&m50_saved_timing[card_index], hdr->timestamp);
+            remaining -= hdr->blockSize;
+            block += hdr->blockSize;
+        }
+    }
     return 1;
 }
 
@@ -3542,6 +3628,7 @@ void init_vsync_vars()
     capture_slot = -1;
     fullsize_buffer_pos = 0;
     edmac_active = 0;
+    m50_copy_pending = 0;
     skipped_frames = 0;
 }
 
@@ -3624,7 +3711,10 @@ void raw_video_rec_task(uint32_t card_index)
         if (!raw_update_params())
         {
             rec_dbg_log("rec_task: raw_update_params FAILED");
-            NotifyBox(5000, "Raw detect error");
+            if (is_m50)
+                NotifyBox(5000, "Raw detect error (%s)", raw_lv_get_fail_reason());
+            else
+                NotifyBox(5000, "Raw detect error");
             goto cleanup;
         }
 
@@ -4025,7 +4115,18 @@ abort_and_check_early_stop:
     wait_lv_frames(2);
 
     /* signal end of recording to the compression task */
-    msg_queue_post(compress_mq, INT_MIN);
+    if (is_m50)
+    {
+        /* LiveView may already be stopped, so waiting for two frames is not
+         * a barrier. The FIFO stop acknowledgement proves that the worker
+         * finished its current CPU copy and discarded queued captures. */
+        while (msg_queue_post(compress_mq, INT_MIN)) msleep(10);
+        take_semaphore(m50_copy_stopped, 0);
+    }
+    else
+    {
+        msg_queue_post(compress_mq, INT_MIN);
+    }
 
     set_recording_custom(CUSTOM_RECORDING_NOT_RECORDING);
 
@@ -4080,6 +4181,13 @@ abort_and_check_early_stop:
                     "Slot %d: frame %d not saved ", slot_index, slots[slot_index].frame_number
                 );
                 beep();
+                if (is_m50)
+                {
+                    /* Includes queued frames discarded after a mode change.
+                     * Their pixel payload was never completed. */
+                    free_slot(slot_index);
+                    continue;
+                }
             }
 
             /* video frame consistency checks only for VIDF */
@@ -4824,6 +4932,11 @@ static unsigned int raw_rec_init()
     lossless_init();
 
     settings_sem = create_named_semaphore(NULL, SEM_CREATE_UNLOCKED);
+    if (is_m50)
+    {
+        m50_copy_stopped = create_named_semaphore("raw_copy_done", SEM_CREATE_LOCKED);
+        ASSERT(m50_copy_stopped);
+    }
     if (is_card_spanning_possible)
         write_queue_sem = create_named_semaphore("queue_sem", SEM_CREATE_UNLOCKED);
 
