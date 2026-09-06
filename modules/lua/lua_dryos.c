@@ -150,7 +150,7 @@ static int luaCB_dryos_rename(lua_State * L)
  */
 static int luaCB_dryos_call(lua_State * L)
 {
-#if 1
+#if 0
     return luaL_error(L,
         "dryos.call() is disabled for safety reasons.\n"
         "If you know what you are doing, just remove this message and recompile.\n"
@@ -637,12 +637,343 @@ static const char * lua_dryos_fields[] =
     NULL
 };
 
+/***
+ Read a 32-bit value from a RAM address.
+ Only allows reads from safe RAM ranges:
+   0x00000000-0x1FFFFFFF (cacheable) and 0x40000000-0x5FFFFFFF (uncacheable).
+ Returns nil for addresses outside RAM.
+ @tparam int address the memory address to read from (RAM or ROM range)
+ @treturn[1] int the 32-bit value at that address
+ @treturn[2] nil if the address is outside the safe range
+ @function peek
+ */
+static int luaCB_dryos_peek(lua_State * L)
+{
+    uint32_t address = (uint32_t)luaL_checkinteger(L, 1);
+    /* Align to 4 bytes for uint32_t read */
+    address &= ~3;
+
+    /* Safety: only allow reads from RAM and ROM ranges
+     * DIGIC 8: 0x00000000-0x1FFFFFFF (cacheable RAM)
+     *          0x40000000-0x5FFFFFFF (uncacheable RAM)
+     *          0xE0000000-0xFFFFFFFF (ROM, decrypted in RAM on DIGIC 8)
+     *          0xDF000000-0xDFFFFFFF (bootloader ROM)
+     * DANGER:  0xC0F00000-0xD04FFFFF (MMIO — hangs CPU!) */
+    uint32_t top4 = address >> 28;
+    if (top4 == 0x0 || top4 == 0x1 || top4 == 0x4 || top4 == 0x5 ||
+        top4 >= 0xE || (address >= 0xDF000000 && address < 0xE0000000))
+    {
+        uint32_t value = MEM(address);
+        lua_pushinteger(L, (lua_Integer)value);
+        return 1;
+    }
+
+    /* Unsafe address — return nil */
+    lua_pushnil(L);
+    return 1;
+}
+
+/***
+ Dump a region of memory directly to a binary file.
+ Much faster than reading word-by-word via peek() from Lua.
+ Validates address range same as peek() — only RAM and ROM allowed.
+ @tparam string filename the output file path
+ @tparam int address the start address (must be word-aligned)
+ @tparam int size number of bytes to dump (must be multiple of 4)
+ @treturn bool true on success, false on failure
+ @function dump_memory
+ */
+static int luaCB_dryos_dump_memory(lua_State * L)
+{
+    const char * filename = luaL_checkstring(L, 1);
+    uint32_t address = (uint32_t)luaL_checkinteger(L, 2);
+    uint32_t size = (uint32_t)luaL_checkinteger(L, 3);
+    
+    address &= ~3;
+    size &= ~3;
+    
+    if (size == 0)
+    {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    
+    /* Validate entire range is safe */
+    uint32_t end_addr = address + size - 1;
+    uint32_t top4_start = address >> 28;
+    uint32_t top4_end = end_addr >> 28;
+    
+    int start_ok = (top4_start == 0x0 || top4_start == 0x1 ||
+                    top4_start == 0x4 || top4_start == 0x5 ||
+                    top4_start >= 0xE ||
+                    (address >= 0xDF000000 && address < 0xE0000000));
+    int end_ok = (top4_end == 0x0 || top4_end == 0x1 ||
+                  top4_end == 0x4 || top4_end == 0x5 ||
+                  top4_end >= 0xE ||
+                  (end_addr >= 0xDF000000 && end_addr < 0xE0000000));
+    
+    if (!start_ok || !end_ok)
+    {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    
+    FILE * f = FIO_CreateFile(filename);
+    if (!f)
+    {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    
+    /* Write in 64KB chunks to avoid any issues */
+    uint32_t chunk = 65536;
+    uint32_t pos = 0;
+    while (pos < size)
+    {
+        uint32_t len = size - pos;
+        if (len > chunk) len = chunk;
+        FIO_WriteFile(f, (void *)(address + pos), len);
+        pos += len;
+    }
+    
+    FIO_CloseFile(f);
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+/***
+ Read a 32-bit value via CPU1 RPC (shamem_read).
+ Can access MMIO and shadow memory registers that CPU0 cannot read directly.
+ Has a timeout (~50ms) to prevent hanging if the address is inaccessible.
+ Returns 0 on timeout (cannot distinguish from a real zero value).
+ WARNING: Some MMIO addresses (e.g. EDMAC 0xD042xxxx) may hang CPU1 permanently.
+ @tparam int address the memory address to read from
+ @treturn int the 32-bit value at that address (0 on timeout/failure)
+ @function shamem_read
+ */
+static int luaCB_dryos_shamem_read(lua_State * L)
+{
+    uint32_t address = (uint32_t)luaL_checkinteger(L, 1);
+    address &= ~3;
+    uint32_t value = shamem_read(address);
+    lua_pushinteger(L, (lua_Integer)value);
+    return 1;
+}
+
+/***
+ Write a 32-bit value to a memory address.
+ WARNING: Writing to wrong addresses may crash or brick the camera.
+ @tparam int address the memory address to write to
+ @tparam int value the 32-bit value to write
+ @function poke
+ */
+static int luaCB_dryos_poke(lua_State * L)
+{
+    uint32_t address = (uint32_t)luaL_checkinteger(L, 1);
+    uint32_t value = (uint32_t)luaL_checkinteger(L, 2);
+    MEM(address) = value;
+    return 0;
+}
+
+/***
+ Append a string to a file using Canon FIO directly.
+ Creates the file if it doesn't exist, appends if it does.
+ Bypasses the libc shim which has issues on DIGIC 8.
+ @tparam string filename the file path (e.g. "ML/LOGS/mylog.log")
+ @tparam string data the string data to append
+ @treturn bool true on success, false on failure
+ @function append_file
+ */
+static int luaCB_dryos_append_file(lua_State * L)
+{
+    const char * filename = luaL_checkstring(L, 1);
+    size_t len = 0;
+    const char * data = luaL_checklstring(L, 2, &len);
+    
+    /* Try to open existing file for append */
+    FILE * f = FIO_CreateFileOrAppend(filename);
+    
+    if (!f)
+    {
+        /* FIO_CreateFileOrAppend calls FIO_OpenFile then FIO_CreateFile.
+         * If both fail, try creating the file directly as a fallback. */
+        f = FIO_CreateFile(filename);
+    }
+    
+    if (!f)
+    {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    
+    if (len > 0)
+    {
+        FIO_WriteFile(f, data, len);
+    }
+    
+    FIO_CloseFile(f);
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+/***
+ Write a string to a file, creating or truncating it.
+ @tparam string filename the file path
+ @tparam string data the string data to write
+ @treturn bool true on success, false on failure
+ @function write_file
+ */
+static int luaCB_dryos_write_file(lua_State * L)
+{
+    const char * filename = luaL_checkstring(L, 1);
+    size_t len = 0;
+    const char * data = luaL_checklstring(L, 2, &len);
+    
+    FILE * f = FIO_CreateFile(filename);
+    if (!f)
+    {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    
+    if (len > 0)
+    {
+        FIO_WriteFile(f, data, len);
+    }
+    
+    FIO_CloseFile(f);
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+/***
+ Append binary data to a file. Creates the file if it doesn't exist.
+ Uses FIO_OpenFile + FIO_SeekSkipFile to properly seek to end.
+ Works on DIGIC 8 where FIO_CreateFileOrAppend returns NULL.
+ @tparam string filename the file path
+ @tparam string data the binary data to append
+ @treturn bool true on success, false on failure
+ @function append_file_binary
+ */
+static int luaCB_dryos_append_file_binary(lua_State * L)
+{
+    const char * filename = luaL_checkstring(L, 1);
+    size_t len = 0;
+    const char * data = luaL_checklstring(L, 2, &len);
+    
+    /* Try to open existing file */
+    FILE * f = FIO_OpenFile(filename, O_RDWR | O_SYNC);
+    
+    if (f)
+    {
+        /* Seek to end */
+        FIO_SeekSkipFile(f, 0, 2);  /* SEEK_END = 2 */
+    }
+    else
+    {
+        /* File doesn't exist, create it */
+        f = FIO_CreateFile(filename);
+    }
+    
+    if (!f)
+    {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    
+    if (len > 0)
+    {
+        FIO_WriteFile(f, data, len);
+    }
+    
+    FIO_CloseFile(f);
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+/***
+ Call a firmware function at an arbitrary ROM address.
+ Use for testing firmware entry points (e.g. ELD Edmac stubs).
+ The function is called with Thumb interworking (addr | 1).
+ @tparam int addr the function address (ROM or RAM)
+ @tparam[opt] int a1 first argument (default 0)
+ @tparam[opt] int a2 second argument (default 0)
+ @tparam[opt] int a3 third argument (default 0)
+ @tparam[opt] int a4 fourth argument (default 0)
+ @treturn int the return value of the function
+ @function fw_call
+ */
+static int luaCB_dryos_fw_call(lua_State * L)
+{
+    uint32_t addr = (uint32_t)luaL_checkinteger(L, 1);
+    uint32_t a1 = (uint32_t)luaL_optinteger(L, 2, 0);
+    uint32_t a2 = (uint32_t)luaL_optinteger(L, 3, 0);
+    uint32_t a3 = (uint32_t)luaL_optinteger(L, 4, 0);
+    uint32_t a4 = (uint32_t)luaL_optinteger(L, 5, 0);
+
+    /* Ensure Thumb bit is set for Thumb functions */
+    addr |= 1;
+
+    /* Cast to function pointer and call */
+    typedef uint32_t (*fw_func_t)(uint32_t, uint32_t, uint32_t, uint32_t);
+    fw_func_t func = (fw_func_t)addr;
+    uint32_t result = func(a1, a2, a3, a4);
+
+    lua_pushinteger(L, (lua_Integer)result);
+    return 1;
+}
+
+/***
+ Read a 32-bit value directly from any memory address including MMIO.
+ Unlike peek(), this does NOT filter unsafe addresses.
+ WARNING: Reading some MMIO addresses (Display, ISP) may hang the CPU permanently.
+ Safe MMIO ranges on M50: EDMAC (0xD0400000-0xD04FFFFF), timers, GPIO.
+ @tparam int addr the memory address to read from
+ @treturn int the 32-bit value at that address
+ @function mmio_read
+ */
+static int luaCB_dryos_mmio_read(lua_State * L)
+{
+    uint32_t addr = (uint32_t)luaL_checkinteger(L, 1);
+    addr &= ~3;
+    uint32_t value = *(volatile uint32_t *)addr;
+    lua_pushinteger(L, (lua_Integer)value);
+    return 1;
+}
+
+/***
+ Write a 32-bit value directly to any memory address including MMIO.
+ Unlike poke(), this uses volatile semantics for hardware register access.
+ WARNING: Writing to wrong addresses may crash or brick the camera.
+ @tparam int addr the memory address to write to
+ @tparam int value the 32-bit value to write
+ @function mmio_write
+ */
+static int luaCB_dryos_mmio_write(lua_State * L)
+{
+    uint32_t addr = (uint32_t)luaL_checkinteger(L, 1);
+    uint32_t value = (uint32_t)luaL_checkinteger(L, 2);
+    addr &= ~3;
+    *(volatile uint32_t *)addr = value;
+    return 0;
+}
+
 const luaL_Reg dryoslib[] =
 {
     {"call", luaCB_dryos_call},
+    {"peek", luaCB_dryos_peek},
+    {"dump_memory", luaCB_dryos_dump_memory},
+    {"poke", luaCB_dryos_poke},
+    {"shamem_read", luaCB_dryos_shamem_read},
+    {"append_file", luaCB_dryos_append_file},
+    {"append_file_binary", luaCB_dryos_append_file_binary},
+    {"write_file", luaCB_dryos_write_file},
     {"directory", luaCB_dryos_directory},
     {"remove", luaCB_dryos_remove},
     {"rename", luaCB_dryos_rename},
+    {"fw_call", luaCB_dryos_fw_call},
+    {"mmio_read", luaCB_dryos_mmio_read},
+    {"mmio_write", luaCB_dryos_mmio_write},
     {NULL, NULL}
 };
 

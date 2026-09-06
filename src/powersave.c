@@ -37,6 +37,9 @@ static int lv_zoom_before_pause = 0;
 
 void PauseLiveView() // this should not include "display off" command
 {
+#ifdef CONFIG_M50
+    return;
+#endif
     if (ml_shutdown_requested) return;
     if (sensor_cleaning) return;
     if (PLAY_MODE) return;
@@ -59,6 +62,9 @@ void PauseLiveView() // this should not include "display off" command
 // returns 1 if it did wakeup
 int ResumeLiveView()
 {
+#ifdef CONFIG_M50
+    return 0;
+#endif
     info_led_on();
     int ans = 0;
     if (ml_shutdown_requested) return 0;

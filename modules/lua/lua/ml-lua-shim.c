@@ -61,7 +61,7 @@ int __libc_open(const char * fn, int flags, ...)
         return -1;
     }
     
-    if (fd <= STDERR_FILENO || fd > 0x10)
+    if (fd <= STDERR_FILENO)
     {
         fprintf(stderr, "fixme: invalid file descriptor (%d)\n", fd);
         FIO_CloseFile((void*)fd);
@@ -69,7 +69,12 @@ int __libc_open(const char * fn, int flags, ...)
         return -1;
     }
     
-    filesizes[fd & 0xF] = filesize;
+    /* On DIGIC 8, fd is a pointer (e.g. 0x1005xxx), not a small int.
+     * Only store filesize if fd fits in our small tracking array. */
+    if (fd > 0 && fd <= 0xF)
+    {
+        filesizes[fd & 0xF] = filesize;
+    }
     
     dbg_printf("%d\n", fd);
     return fd;
@@ -90,12 +95,11 @@ int __libc_close(int fd)
         
         case STDERR_FILENO+1 ... 15:
             filesizes[fd] = 0;
+            /* fall through */
+        default:
+            /* On DIGIC 8, fd may be a large pointer value */
             FIO_CloseFile((void*)fd);
             return 0;
-        
-        default:
-            errno = EINVAL;
-            return -1;
     }
 }
 

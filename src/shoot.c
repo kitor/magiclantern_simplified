@@ -58,6 +58,7 @@
 #include "module.h"
 
 static struct recursive_lock * shoot_task_rlock = NULL;
+volatile uint32_t shoot_task_heartbeat = 0;  /* visible from raw_lv_status_task */
 
 static CONFIG_INT( "shoot.num", pics_to_take_at_once, 0);
 static CONFIG_INT( "shoot.af",  shoot_use_af, 0 );
@@ -239,6 +240,11 @@ void set_interval_time(int seconds)
 {
     interval_time = seconds;
 }
+#else
+/* Stubs when FEATURE_INTERVALOMETER is not enabled */
+int get_interval_count() { return 0; }
+int get_interval_time() { return 0; }
+void set_interval_time(int seconds) { (void)seconds; }
 #endif
 
 const char* format_time_hours_minutes_seconds(int seconds)
@@ -5493,6 +5499,7 @@ shoot_task( void* unused )
         /* when we received a message, redraw immediately */
         if (k%5 == 0 || !err) misc_shooting_info();
 
+        shoot_task_heartbeat++;
 #if defined(CONFIG_MODULES)
         module_exec_cbr(CBR_SHOOT_TASK);
 #endif

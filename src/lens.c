@@ -1541,7 +1541,13 @@ extern int bv_auto;
 static int iso_ack = -1;
 PROP_HANDLER( PROP_ISO )
 {
+    /* DIGIC 8+: CONTROL_BV is always set by Canon AE in LV; bypass it
+     * since FEATURE_EXPO_OVERRIDE is not available on these platforms */
+    #ifdef CONFIG_DIGIC_8X
+    lensinfo_set_iso(buf[0]);
+    #else
     if (!CONTROL_BV) lensinfo_set_iso(buf[0]);
+    #endif
     #ifdef FEATURE_EXPO_OVERRIDE
     else if 
         (
@@ -1600,11 +1606,16 @@ PROP_HANDLER( PROP_BV ) // camera-specific
 
 PROP_HANDLER( PROP_SHUTTER )
 {
-    if (!CONTROL_BV) 
+    #ifdef CONFIG_DIGIC_8X
+    if (shooting_mode != SHOOTMODE_AV && shooting_mode != SHOOTMODE_P)
+        lensinfo_set_shutter(buf[0]);
+    #else
+    if (!CONTROL_BV)
     {
         if (shooting_mode != SHOOTMODE_AV && shooting_mode != SHOOTMODE_P)
             lensinfo_set_shutter(buf[0]);
     }
+    #endif
     #ifdef FEATURE_EXPO_OVERRIDE
     else if (buf[0]  // sync expo override to Canon values
             #if !defined(CONFIG_100D) // any other cameras which need this ?
@@ -1631,10 +1642,14 @@ PROP_HANDLER( PROP_SHUTTER )
 PROP_HANDLER( PROP_APERTURE )
 {
     //~ NotifyBox(2000, "%x %x %x %x ", buf[0], CONTROL_BV, lens_info.raw_aperture_min, lens_info.raw_aperture_max);
+    #ifdef CONFIG_DIGIC_8X
+    lensinfo_set_aperture(buf[0]);
+    #else
     if (!CONTROL_BV)
     {
         lensinfo_set_aperture(buf[0]);
     }
+    #endif
     #ifdef FEATURE_EXPO_OVERRIDE
     else if (buf[0] && !gui_menu_shown()
         #ifdef CONFIG_MOVIE_EXPO_OVERRIDE_DISABLE_SYNC_WITH_PROPS
@@ -1662,11 +1677,14 @@ PROP_HANDLER( PROP_APERTURE_AUTO )
             return;
     }
 
+    #ifdef CONFIG_DIGIC_8X
+    lensinfo_set_aperture(buf[0]);
+    #else
     if (!CONTROL_BV)
     {
-        /* expo override turned off? */
         lensinfo_set_aperture(buf[0]);
     }
+    #endif
 
     lens_display_set_dirty();
 }
@@ -1684,13 +1702,16 @@ PROP_HANDLER( PROP_SHUTTER_AUTO )
             return;
     }
     
+    #ifdef CONFIG_DIGIC_8X
+    if (ABS(buf[0] - lens_info.raw_shutter) > 3)
+        lensinfo_set_shutter(buf[0]);
+    #else
     if (!CONTROL_BV)
     {
-        /* expo override turned off? */
-        /* todo: double-check if it's still needed */
         if (ABS(buf[0] - lens_info.raw_shutter) > 3) 
             lensinfo_set_shutter(buf[0]);
     }
+    #endif
     
     lens_display_set_dirty();
 }
@@ -1955,21 +1976,21 @@ PROP_HANDLER( PROP_LENS_DYNAMIC_DATA )
         return;
 
     const struct prop_lens_dynamic_data * const _dynamic = (void*) buf;
+
+    // (diagnostic logging removed — using PROP 0x8002004f handler instead)
+
     lens_info.focal_len        = _dynamic->FL;
     lens_info.IS               = (_dynamic->st3 & 0xF); //last 8 bits looks like PROP_LV_LENS_STABILIZE equiv.
 
     // This can be used to fake PROP_AF_MODE. Works only on lenses with physical AF/MF switch.
     //af_mode = (_dynamic->st2 & 0x80) ? AF_MODE_MANUAL_FOCUS : AF_MODE_ONE_SHOT; // true -> MF, false -> AF
 
-    /*
-    // Disabled for now. Requires lens_info rewrite due to storage size change
-    lens_info.raw_aperture_min = _dynamic->AVO;
-    lens_info.raw_aperture_max = _dynamic->AVMAX;
-    if (lens_info.raw_aperture < lens_info.raw_aperture_min || lens_info.raw_aperture > lens_info.raw_aperture_max)
-    {
-        int raw = COERCE(lens_info.raw_aperture, lens_info.raw_aperture_min, lens_info.raw_aperture_max);
-        lensinfo_set_aperture(raw); // valid limits changed
-    } */
+    // DIGIC 8: aperture from PROP_LENS_DYNAMIC_DATA
+    // AVEF/AVO/AVMAX are in pure APEX*8 encoding (0 = f/1.0)
+    // ML's internal raw codes use an offset of 8, so we add 8 to convert
+    lens_info.raw_aperture_min = (uint8_t)(_dynamic->AVO + 8);
+    lens_info.raw_aperture_max = (uint8_t)(_dynamic->AVMAX + 8);
+    lensinfo_set_aperture((uint8_t)(_dynamic->AVEF + 8));
 
     // PROP_LENS_DYNAMIC_DATA provides focus near and focus far values.
     // We compute focus dist using harmonic mean ( 2*Dn*Df / (Dn + Df) )
@@ -1990,6 +2011,23 @@ PROP_HANDLER( PROP_LENS_DYNAMIC_DATA )
     }
 
     _lens_dynamic_data_post_update();
+
+    /* DIGIC 8: PROP_ISO/PROP_SHUTTER may not update in movie mode.
+     * Use LVAE auto-exposure values as source of truth. */
+    if (lv && CONTROL_BV_ISO)
+    {
+        lens_info.raw_iso_auto = (uint8_t)CONTROL_BV_ISO;
+        lens_info.iso_auto = RAW2VALUE(iso, lens_info.raw_iso_auto);
+        if (!lens_info.raw_iso)
+        {
+            /* auto ISO mode: also set primary ISO from LVAE */
+            lensinfo_set_iso((uint8_t)CONTROL_BV_ISO);
+        }
+    }
+    if (lv && CONTROL_BV_TV && !lens_info.raw_shutter)
+    {
+        lensinfo_set_shutter((uint8_t)CONTROL_BV_TV);
+    }
 }
 #endif
 
@@ -2276,6 +2314,112 @@ crop_factor_menu_init()
     lens_info_menus[0].children[0].parent_menu->split_pos = -10;
 }
 
+// Diagnostic property handlers disabled — race condition with task
+
+static void expo_diag_task(void* unused)
+{
+    // v8: adds lens_info + more EP/MV addresses for encoding calibration
+
+    #define N_ADDRS 16
+    struct { uint32_t addr; const char* name; } targets[N_ADDRS] = {
+        { 0x750BC, "LV_BV"    },  // LVAE+0x28
+        { 0x750C0, "LV_TV"    },  // LVAE+0x2C
+        { 0x750C4, "LV_AV"    },  // LVAE+0x30
+        { 0x750C8, "LV_ISO"   },  // LVAE+0x32
+        { 0x8834,  "EP0"      },  // EP ISO copy
+        { 0x8838,  "EP4"      },
+        { 0x883C,  "EP8"      },  // more EP region
+        { 0x8840,  "EPC"      },
+        { 0x78CC,  "MV0"      },  // movie AE base
+        { 0x78D0,  "MV4"      },
+        { 0x78D4,  "MV8"      },  // new
+        { 0x78D8,  "MVC"      },  // new
+        { 0x78E0,  "MV14"     },
+        { 0x78F0,  "MV24"     },  // hi = TvMovie_AE (base+0x26)
+        { 0x78F4,  "MV28"     },  // lo = AvMovie_AE, hi = SvMovie_AE
+        { 0x78F8,  "MV2C"     },
+    };
+
+    uint32_t prev[N_ADDRS];
+    const char* phase_names[] = { "baseline", "aperture", "shutter", "iso" };
+    const char* file_names[] = { "EX0.LOG", "EX1.LOG", "EX2.LOG", "EX3.LOG" };
+
+    for (int p = 0; p < 4; p++)
+    {
+        if (p == 0) printf("[EX] v8 Phase 0: keep settings, 10s\n");
+        else if (p == 1) printf("[EX] Phase 1: CHANGE APERTURE, 10s\n");
+        else if (p == 2) printf("[EX] Phase 2: CHANGE SHUTTER, 10s\n");
+        else printf("[EX] Phase 3: CHANGE ISO, 10s\n");
+
+        msleep(10000);
+
+        // Read all addresses (stack-local)
+        uint32_t cur[N_ADDRS];
+        for (int i = 0; i < N_ADDRS; i++)
+            cur[i] = *(volatile uint32_t*)(targets[i].addr);
+
+        printf("[EX] snap %d read\n", p);
+
+        // Format into stack buffer (larger for lens_info)
+        char buf[768];
+        int pos = 0;
+
+        pos += snprintf(buf + pos, sizeof(buf) - pos, "== %s ==\n", phase_names[p]);
+
+        // Always include lens_info as calibration reference
+        pos += snprintf(buf + pos, sizeof(buf) - pos,
+            "LI raw_av=%d raw_tv=%d raw_iso=%d av_min=%d av_max=%d\n",
+            lens_info.raw_aperture, lens_info.raw_shutter,
+            lens_info.raw_iso,
+            lens_info.raw_aperture_min, lens_info.raw_aperture_max);
+
+        if (p == 0)
+        {
+            for (int i = 0; i < N_ADDRS; i++)
+            {
+                uint32_t v = cur[i];
+                pos += snprintf(buf + pos, sizeof(buf) - pos,
+                    "%s %X %08X %d %d\n",
+                    targets[i].name, targets[i].addr,
+                    v, v & 0xFFFF, (v >> 16) & 0xFFFF);
+            }
+        }
+        else
+        {
+            int any = 0;
+            for (int i = 0; i < N_ADDRS; i++)
+            {
+                if (cur[i] != prev[i])
+                {
+                    pos += snprintf(buf + pos, sizeof(buf) - pos,
+                        "%s %08X>%08X %d|%d>%d|%d\n",
+                        targets[i].name,
+                        prev[i], cur[i],
+                        prev[i] & 0xFFFF, (prev[i] >> 16) & 0xFFFF,
+                        cur[i] & 0xFFFF, (cur[i] >> 16) & 0xFFFF);
+                    any = 1;
+                }
+            }
+            if (!any) pos += snprintf(buf + pos, sizeof(buf) - pos, "no change\n");
+        }
+
+        for (int i = 0; i < N_ADDRS; i++) prev[i] = cur[i];
+
+        FILE* f = FIO_CreateFile(file_names[p]);
+        if (f)
+        {
+            FIO_WriteFile(f, buf, pos);
+            FIO_CloseFile(f);
+            printf("[EX] wrote %s (%d bytes)\n", file_names[p], pos);
+        }
+        else
+        {
+            printf("[EX] FAILED %s\n", file_names[p]);
+        }
+    }
+    printf("[EX] v8 DONE\n");
+}
+
 static void
 lens_init( void* unused )
 {
@@ -2289,6 +2433,9 @@ lens_init( void* unused )
 #ifndef CONFIG_5DC
     menu_add("Movie Tweaks", lens_menus, COUNT(lens_menus));
 #endif
+
+    // Start exposure diagnostic task (larger stack for safety)
+    task_create("expo_diag", 0x1c, 0x4000, expo_diag_task, 0);
 }
 
 INIT_FUNC( "lens", lens_init );
@@ -3027,16 +3174,20 @@ static LVINFO_UPDATE_FUNC(av_update)
 {
     LVINFO_BUFFER(8);
 
+    #ifdef CONFIG_DIGIC_8X
+    /* DIGIC 8: read aperture directly from LVAE struct (properties don't fire in movie LV) */
+    if (lv && CONTROL_BV_AV)
+    {
+        int raw_av = (uint8_t)CONTROL_BV_AV;
+        snprintf(buffer, sizeof(buffer), lens_format_aperture(raw_av));
+    }
+    else
+    #endif
     if (lens_info.raw_aperture && lens_info.lens_exists)
     {
         snprintf(buffer, sizeof(buffer), lens_format_aperture(lens_info.raw_aperture));
     }
-    
-    if (CONTROL_BV)
-    {
-        /* mark the "exposure override" mode */
-        item->color_bg = 18;
-    }
+
 }
 
 static LVINFO_UPDATE_FUNC(tv_update)
@@ -3049,7 +3200,22 @@ static LVINFO_UPDATE_FUNC(tv_update)
     }
     else if (is_movie_mode())
     {
-        snprintf(buffer, sizeof(buffer), "%s", lens_format_shutter_reciprocal(get_current_shutter_reciprocal_x1000(), 2));
+        #ifdef CONFIG_DIGIC_8X
+        /* DIGIC 8: read shutter directly from LVAE struct */
+        if (lv && CONTROL_BV_TV)
+        {
+            int raw_tv = (uint8_t)CONTROL_BV_TV;
+            snprintf(buffer, sizeof(buffer), "%s", lens_format_shutter(raw_tv));
+        }
+        else
+        #endif
+        {
+            int sr = get_current_shutter_reciprocal_x1000();
+            if (sr > 0)
+                snprintf(buffer, sizeof(buffer), "%s", lens_format_shutter_reciprocal(sr, 2));
+            else if (lens_info.raw_shutter)
+                snprintf(buffer, sizeof(buffer), "%s", lens_format_shutter(lens_info.raw_shutter));
+        }
     }
     else if (lens_info.raw_shutter)
     {
@@ -3112,8 +3278,13 @@ static LVINFO_UPDATE_FUNC(iso_update)
 
         #ifdef FRAME_ISO
         int lv_iso = (FRAME_ISO & 0xFF) + (get_htp() ? 8 : 0);
+        #elif defined(CONFIG_DIGIC_8X)
+        /* DIGIC 8: read ISO directly from LVAE struct */
+        int lv_iso = (lv && CONTROL_BV_ISO) ? (uint8_t)CONTROL_BV_ISO : lens_info.raw_iso;
+        if (!lv_iso) lv_iso = lens_info.raw_iso_auto;
         #else
         int lv_iso = lens_info.raw_iso;
+        if (!lv_iso) lv_iso = lens_info.raw_iso_auto; /* auto ISO fallback (DIGIC 8+) */
         #endif
 
         if (ABS(lv_iso - lens_info.raw_iso) > 3)

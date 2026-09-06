@@ -23,8 +23,21 @@
 /* has LV */
 #define CONFIG_LIVEVIEW
 
-/* hooking EFV_STATE ends with EvfCap crashes, requires investigation */
-//#define CONFIG_STATE_OBJECT_HOOKS
+/* enable LiveView RAW backend (required by raw video modules to get non-zero raw_info geometry) */
+#define CONFIG_RAW_LIVEVIEW
+
+/* EVF_STATE hooks: confirmed working on M50 without Error 70.
+ * CONFIG_STATE_OBJECT_HOOKS: hooks the EVF_STATE spy function.
+ * CONFIG_EVF_STATE_SYNC: calls vsync_func() on input==5 && old_state==5
+ *   (evfReadOutDoneInterrupt), which fires module_exec_cbr(CBR_VSYNC).
+ * This gives frame-accurate vsync from Canon's own pipeline. */
+#define CONFIG_STATE_OBJECT_HOOKS
+#define CONFIG_EVF_STATE_SYNC
+
+/* M50 has no mode dial — movie mode is selected via touchscreen menu.
+ * Without this, is_movie_mode() checks shooting_mode == 0x14, which
+ * never matches on M50.  With this flag it checks lv_movie_select instead. */
+#define CONFIG_NO_DEDICATED_MOVIE_MODE
 
 #define CONFIG_MALLOC_STRUCT_V2
 

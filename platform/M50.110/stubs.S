@@ -262,6 +262,54 @@ DATA_PTR(   0x139b8,  LiveViewApp_dialog)                   // in StartLiveViewA
 
 
 
+/** EDMAC — ELD Edmac Low Driver primitives (DIGIC 8) **/
+// Found via static analysis of M50 ROM0.BIN (firmware 1.1.0)
+// Source: ELD/Edmac/Edmac.c driver region 0xE0549000-0xE054C000
+// Channel table in ROM at 0xE0DD7BA0 (76 entries, 8 bytes each)
+THUMB_FN(0xE054A30E,  eld_edmac_init)                       // clear channel config, zero cbr_registered
+THUMB_FN(0xE0549E8C,  eld_edmac_reset)                      // full channel reset: [+8]=2/3, [+0x1C/0x18]=0, [+0xB4]=2
+THUMB_FN(0xE0549E52,  eld_edmac_stop)                       // stop channel: [+8]=0x12, DSB, [+0xB4]=1
+THUMB_FN(0xE0549F76,  eld_edmac_config)                     // register channel: set config ptr, [+0x3C]=1
+THUMB_FN(0xE054A4B2,  eld_edmac_clear_enable)               // clear DMA enable: [+0x20]=0, [+0x24]=0
+THUMB_FN(0xE054A4F2,  eld_edmac_set_enable)                 // set DMA enable: [+0x20]=1, [+0x24]=1
+THUMB_FN(0xE054A9AE,  eld_edmac_set_addr)                   // set ram_addr: [+0xA0]=addr
+THUMB_FN(0xE054AFA8,  eld_edmac_set_addr2)                  // set second addr: [+0xAC]=addr
+THUMB_FN(0xE054A9BA,  eld_edmac_set_geom)                   // write edmac_info geometry to MMIO regs +0x48..+0x70
+THUMB_FN(0xE054AEB0,  eld_edmac_set_mode)                   // set transfer_mode: [+0xC0] = mode (0-3)
+THUMB_FN(0xE054AF3C,  eld_edmac_start)                      // check flags + write [+0xDC]=1 (start trigger)
+THUMB_FN(0xE054BF18,  eld_edmac_trigger)                    // write [+0xDC]=1 directly (no flag check)
+THUMB_FN(0xE054A386,  eld_edmac_irq_enable)                 // enable IRQ for channel (BoomerSelector)
+THUMB_FN(0xE054A7CC,  eld_edmac_start_arm)                  // arm channel for transfer
+
+/** DarkCurCor mem-to-mem Layer 2 wrapper functions **/
+// Complete mem-to-mem DMA copy sequence wrapping ELD primitives.
+// Global state struct at RAM 0x00016F38, channel pair at ROM 0xE0F72640 = {0x3D, 0x18}
+THUMB_FN(0xE084DE9C,  m2m_InitMem2MemModule)                // (ch_pair*) init channels, crossbar, ISRs
+THUMB_FN(0xE084DF40,  m2m_store_struct)                     // (cbr, arg) store completion callback
+THUMB_FN(0xE084DF4A,  m2m_reinit_struct)                    // clear completion state
+THUMB_FN(0xE084DF26,  m2m_cleanup_channels)                 // abort + reset both channels
+THUMB_FN(0xE084DF70,  m2m_set_addrs)                        // (addr_pair*) set source/dest DMA addresses
+THUMB_FN(0xE084DF8A,  m2m_set_geom_mode)                    // (geom_desc*) set geometry + transfer mode
+THUMB_FN(0xE084DF56,  m2m_start_connect)                    // arm + connect (triggers DMA transfer)
+THUMB_FN(0xE084B380,  m2m_resource_lock)                    // (res_entry*, flags) → lock handle
+THUMB_FN(0xE084B3AC,  m2m_resource_unlock)                  // (handle) release DMA resources
+THUMB_FN(0xE084B446,  m2m_pwr_wake)                         // power up DMA engine
+THUMB_FN(0xE084B44E,  m2m_pwr_sleep)                        // power down DMA engine
+
+/** EfmErsc — engine resource locking (DIGIC 8 equivalent of ResLock) **/
+THUMB_FN(0xE0815598,  EfmErscCreateLockEntry)               // (resIds*, count, flags?) → lock handle
+THUMB_FN(0xE07A5F2E,  EfmErscLockResources)                 // (handle) → lock engine resources
+THUMB_FN(0xE07A5F72,  EfmErscUnLockResources)               // release engine resources
+THUMB_FN(0xE07A623E,  EfmErscDeleteLockEntry)               // delete lock entry
+
+/** EDMAC channel table constants (76 channels, 0xD04xxxxx MMIO base) **/
+// Table at ROM 0xE0DD7BA0: each entry is {uint32_t mmio_base, uint32_t flags}
+// Key channels for mem-to-mem:
+//   Ch 0x13 (19): MMIO=0xD045E200 (write, dest)  — same as 200D
+//   Ch 0x30 (48): MMIO=0xD0440300 (read, source) — same as 200D
+//   Ch 0x29 (41): MMIO=0xD0421100 (Mem2MemPath)
+//   Ch 0x08 ( 8): MMIO=0xD0420700 (RAW_LV_EDMAC)
+
 /**
  * STUFF BELOW IS WRONG!
  **/

@@ -294,6 +294,7 @@ int module_get_next_loaded(int mod_number);
 const char* module_get_string(int mod_number, const char* name);
 int module_get_number(const char *name);
 const char* module_get_name(int mod_number);
+void module_get_cbr_and_error(int mod_number, int *has_cbr, int *error);
 
 /* execute all callback routines of given type. maybe it will get extended to support varargs */
 int module_exec_cbr(unsigned int type);

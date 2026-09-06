@@ -802,6 +802,21 @@ static struct menu_entry edmac_menu[] =
 static unsigned int edmac_init()
 {
     is_5d3 = is_camera("5D3", "*");
+
+    /*
+     * Safety: on early DIGIC 8 ports (e.g. M50), EDMAC register addresses and access methods
+     * are not validated. This module polls hardcoded EDMAC register ranges via MEM(), which
+     * can hard-crash the camera if those addresses are unmapped/different.
+     *
+     * Keep the module loadable (so it doesn't spam missing-symbol errors), but do not
+     * install any menus / start any EDMAC probing.
+     */
+    if (is_camera("M50", "*"))
+    {
+        NotifyBox(3000, "edmac: disabled on M50");
+        return 0;
+    }
+
     edmac_regs_init();
     menu_add("Debug", edmac_menu, COUNT(edmac_menu));
     return 0;

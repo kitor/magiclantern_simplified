@@ -555,6 +555,9 @@ LFLAGS += -u __aeabi_f2ulz -u __aeabi_f2lz
 # uses efficient hw division, it just includes the code for sw div.
 LFLAGS += -u __aeabi_idiv -u __aeabi_idivmod
 
+# Force including intervalometer functions for Lua and other modules
+LFLAGS += -u get_interval_count -u get_interval_time -u set_interval_time
+
 ML_LIBC = $(BUILD_DIR)/dietlibc.a \
           $(BUILD_DIR)/newlib-libc.a \
           $(BUILD_DIR)/newlib-libm.a \

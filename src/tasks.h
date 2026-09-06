@@ -379,7 +379,7 @@ task_create_##ENTRY = { \
 
 extern int ml_shutdown_requested;
 
-#define TASK_LOOP for (int k = 0; !ml_shutdown_requested ; k++)
+#define TASK_LOOP for (int k = 0; !ml_shutdown_requested ; (void)k, k++)
 
 
 const char * get_task_name_from_id(int id);

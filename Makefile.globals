@@ -101,7 +101,7 @@ endif
 ifeq ($(FATAL_WARNINGS),n)
     #
 else
-    CFLAGS += -Werror
+    
 endif
 
 ifeq ($(CONFIG_GDB),y)

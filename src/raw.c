@@ -137,7 +137,10 @@ static int (*dual_iso_get_dr_improvement)() = MODULE_FUNCTION(dual_iso_get_dr_im
 
 #ifdef CONFIG_RAW_LIVEVIEW
 // volatile because this points at some OS managed MMIO
+#ifndef CONFIG_M50
+/* M50: EDMAC MMIO hangs shamem_read; we use direct RAM read instead */
 static volatile struct edmac_mmio *raw_lv_edmac = (struct edmac_mmio *)RAW_LV_EDMAC_CHANNEL_ADDR;
+#endif
 #endif
 
 #endif  /* no CONFIG_EDMAC_RAW_SLURP */
@@ -692,10 +695,127 @@ static void * raw_lv_buffer = 0;
 static int raw_lv_buffer_size = 0;
 #endif
 
+#ifdef CONFIG_M50
+/*
+ * M50 Dynamic Raw Height Probe — asynchronous zero-sentinel method.
+ *
+ * Canon's raw LV buffer is allocated for ~3681 lines (13.5MB at 3668 B/line)
+ * but DMA only fills part of it each frame.  Stale data from previous
+ * allocations sits beyond the active region, so a simple "scan for
+ * non-zero" probe does NOT work (it inflates the count to the buffer limit).
+ *
+ * Zero-sentinel method:
+ *   1. Memset lines beyond a known minimum to zero (UNCACHEABLE address,
+ *      so both our write and DMA bypass L1/L2 cache).
+ *   2. Wait ~200 ms (≥ 5 frames at 25 fps) for Canon's DMA to overwrite
+ *      whatever lines it actually outputs.
+ *   3. Scan forward from the minimum: every line that received non-zero
+ *      data was written by DMA; the first still-zero line marks the
+ *      boundary.
+ *   4. Cache the result until the video mode changes.
+ *
+ * The probe is non-blocking: zeroing happens on one call to
+ * raw_lv_get_resolution(), the check happens on a later call once the
+ * timer has elapsed.  In between, the previous (or default) height is
+ * returned so callers are never stalled.
+ */
+#define M50_MIN_RAW_HEIGHT   838   /* known minimum across tested modes       */
+#define M50_MAX_RAW_PROBE   2000   /* stop probing here                       */
+#define M50_RAW_PITCH       3668   /* bytes/line (14-bit packed, 2096 pixels) */
+#define M50_PROBE_WAIT_MS    200   /* delay before checking sentinel          */
+
+enum { M50_PROBE_IDLE = 0, M50_PROBE_WAIT, M50_PROBE_DONE };
+
+static int m50_probe_state    = M50_PROBE_IDLE;
+static int m50_probe_height   = 1160;
+static int m50_probe_start_ms = 0;
+static int m50_probe_mode_key = -1;
+
+/* Encode the current Canon video mode as a single integer so we can
+ * detect mode changes cheaply. */
+static int m50_video_mode_key(void)
+{
+    return (video_mode_resolution << 16) | (video_mode_crop << 8) | video_mode_fps;
+}
+
+/* Maximum probeable line given the buffer allocation at 0xD1C4. */
+static int m50_probe_max_line(void)
+{
+    uint32_t alloc = *(volatile uint32_t *)0x0000D1C4;
+    int limit = M50_MAX_RAW_PROBE;
+    if (alloc > 0 && alloc < 0x02000000)
+    {
+        int buf_lines = alloc / M50_RAW_PITCH;
+        if (limit > buf_lines) limit = buf_lines;
+    }
+    return limit;
+}
+
+/* Step 1: zero the sentinel region (lines MIN_HEIGHT .. max_line). */
+static void m50_probe_zero(void)
+{
+    volatile uint32_t *rs = (volatile uint32_t *)0x0000D1C8;
+    uint32_t buf_addr = rs[0];
+    if (!buf_addr) return;
+
+    /* buf_addr is already ≥ 0x40000000 → UNCACHEABLE.
+     * Both our memset and Canon's DMA bypass the CPU cache. */
+    uint8_t *buf = (uint8_t *)(uintptr_t)buf_addr;
+
+    int max_line = m50_probe_max_line();
+    int zero_bytes = (max_line - M50_MIN_RAW_HEIGHT) * M50_RAW_PITCH;
+    if (zero_bytes > 0)
+    {
+        memset(buf + M50_MIN_RAW_HEIGHT * M50_RAW_PITCH, 0, zero_bytes);
+    }
+}
+
+/* Step 2: scan the sentinel to find the first line that stayed zero. */
+static int m50_probe_check(void)
+{
+    volatile uint32_t *rs = (volatile uint32_t *)0x0000D1C8;
+    uint32_t buf_addr = rs[0];
+    if (!buf_addr) return M50_MIN_RAW_HEIGHT;
+
+    uint8_t *buf = (uint8_t *)(uintptr_t)buf_addr;
+    int max_line = m50_probe_max_line();
+
+    int detected = M50_MIN_RAW_HEIGHT;
+    for (int y = M50_MIN_RAW_HEIGHT; y < max_line; y++)
+    {
+        uint32_t *row = (uint32_t *)(buf + y * M50_RAW_PITCH);
+        int has_data = 0;
+
+        /* Sample ~32 evenly-spaced words per line.  Skip the first
+         * 16 bytes (possible DMA padding / alignment artifacts). */
+        int step = M50_RAW_PITCH / (32 * 4);
+        if (step < 1) step = 1;
+        for (int i = 4; i < M50_RAW_PITCH / 4; i += step)
+        {
+            if (row[i] != 0) { has_data = 1; break; }
+        }
+
+        if (has_data)
+            detected = y + 1;
+        else
+            break;              /* first zero line → DMA boundary */
+    }
+
+    return detected;
+}
+#endif /* CONFIG_M50 */
+
 /* our default LiveView buffer (which can be DEFAULT_RAW_BUFFER or allocated) */
 static void* raw_get_default_lv_buffer()
 {
-#if !defined(CONFIG_EDMAC_RAW_SLURP)
+#ifdef CONFIG_M50
+    /* DIGIC 8: EDMAC MMIO hangs shamem_read. Read buffer pointer directly
+     * from Canon's raw state struct in cacheable RAM at 0x0000D1C8.
+     * Confirmed live on camera via RawProbe v8b (LOG000.LOG). */
+    volatile uint32_t *raw_state = (volatile uint32_t *)0x0000D1C8;
+    uint32_t buf = raw_state[0];
+    return buf ? CACHEABLE(buf) : 0;
+#elif !defined(CONFIG_EDMAC_RAW_SLURP)
     return CACHEABLE(shamem_read((uint32_t)&(raw_lv_edmac->ram_addr)));
 #else
     return CACHEABLE(raw_lv_buffer);
@@ -764,7 +884,71 @@ static int raw_lv_get_resolution(int* width, int* height)
 #endif
     return 1;
 
-#else // ~CONFIG_EDMAC_RAW_SLURP
+#elif defined(CONFIG_M50)
+    /* DIGIC 8: hardcoded pitch, dynamic height via zero-sentinel probe.
+     * Width is always 2096 pixels (3668 bytes / line, 14-bit packed).
+     * Height is probed per video mode — Canon may output more lines in
+     * 4K crop mode than in 1080p.  Falls back to 1160 (standard 1080p). */
+    *width = M50_RAW_PITCH * 8 / 14;   /* 2096 */
+
+    /* If recording is in progress, never re-probe, zero memory, or change height!
+     * Changing height mid-recording terminates the clip early via raw_lv_settings_still_valid. */
+    if (RECORDING)
+    {
+        *height = m50_probe_height;
+        return 1;
+    }
+
+    /* Detect video-mode changes and re-probe */
+    int mk = m50_video_mode_key();
+    if (mk != m50_probe_mode_key)
+    {
+        m50_probe_state = M50_PROBE_IDLE;
+        m50_probe_mode_key = mk;
+    }
+
+    switch (m50_probe_state)
+    {
+        case M50_PROBE_IDLE:
+        {
+            m50_probe_zero();
+            m50_probe_start_ms = get_ms_clock();
+            m50_probe_state = M50_PROBE_WAIT;
+            /* Log mode info once per probe cycle */
+            printf("[RAW] M50 probe: zeroed sentinel (res=%d crop=%d fps=%d)\n",
+                   video_mode_resolution, video_mode_crop, video_mode_fps);
+            break;
+        }
+
+        case M50_PROBE_WAIT:
+        {
+            if ((get_ms_clock() - m50_probe_start_ms) > M50_PROBE_WAIT_MS)
+            {
+                int h = m50_probe_check();
+                m50_probe_height = h;
+                m50_probe_state = M50_PROBE_DONE;
+                printf("[RAW] M50 probe: %d lines detected (res=%d crop=%d fps=%d)%s\n",
+                       h, video_mode_resolution, video_mode_crop, video_mode_fps,
+                       (h > M50_MIN_RAW_HEIGHT) ? " — EXTENDED!" : "");
+
+                /* Also log the raw state struct for analysis */
+                volatile uint32_t *rs = (volatile uint32_t *)0x0000D1C4;
+                printf("[RAW] M50 struct: alloc=0x%X buf=0x%X D1D8=0x%X D128=%d\n",
+                       rs[0], rs[1], rs[5],
+                       *(volatile uint32_t *)0x0000D128);
+            }
+            break;
+        }
+
+        case M50_PROBE_DONE:
+            /* cached — nothing to do */
+            break;
+    }
+
+    *height = m50_probe_height;
+    return 1;
+
+#else // ~CONFIG_EDMAC_RAW_SLURP, ~CONFIG_M50
     /* autodetect raw size from EDMAC */
     uint32_t lv_raw_height = shamem_read((uint32_t)&(raw_lv_edmac->yn_xn)); // yn_xn??  For height??
     uint32_t lv_raw_size = shamem_read((uint32_t)&(raw_lv_edmac->yb_xb));
@@ -778,6 +962,100 @@ static int raw_lv_get_resolution(int* width, int* height)
     return 1;
 #endif
 }
+
+#ifdef CONFIG_M50
+/* File-based crash breadcrumb for raw_lv_enable chain.
+ * Writes individual files B:/STEP70.TXT etc so they survive crashes. */
+static int raw_dbg_step_counter = 70;
+static void raw_dbg_log(const char* msg)
+{
+    char fname[40];
+    int step = raw_dbg_step_counter++;
+    snprintf(fname, sizeof(fname), "B:/STEP%02d.TXT", step);
+    FILE* f = FIO_CreateFile(fname);
+    if (f) {
+        char buf[80];
+        int len = snprintf(buf, sizeof(buf), "step%d: %s\n", step, msg);
+        FIO_WriteFile(f, buf, len);
+        FIO_CloseFile(f);
+    }
+}
+
+/*
+ * Early DIGIC 8 ports may have an unknown RAW LV EDMAC channel address.
+ * When the address is wrong (or lv_save_raw does not enable the stream),
+ * raw_update_params_work() fails and raw video modules will show 0x0.
+ *
+ * Print minimal, rate-limited debug info on-screen to help identify which
+ * registers are returning 0.
+ */
+static uint32_t raw_lv_dbg_next_print_ms = 0;
+
+/* Persistent diagnostic state for always-on overlay */
+static int raw_lv_ret_mm = -999;   /* return value of lv_set_mm(1) */
+static int raw_lv_ret_raw = -999;  /* return value of lv_save_raw(1) */
+static const char *raw_lv_fail_reason = "init"; /* last failure reason */
+
+const char* raw_lv_get_fail_reason(void)
+{
+    return raw_lv_fail_reason;
+}
+
+/* forward decls (definitions are later in this file) */
+int raw_lv_is_enabled(void);
+static int raw_lv_get_request_count(void);
+
+static void raw_lv_debug_print_once_per_sec(const char *reason)
+{
+    if (!lv || !DISPLAY_IS_ON) return;
+
+    uint32_t now = get_ms_clock();
+    if (now < raw_lv_dbg_next_print_ms) return;
+    raw_lv_dbg_next_print_ms = now + 1000;
+
+    volatile uint32_t *raw_state = (volatile uint32_t *)0x0000D1C8;
+    uint32_t ram = raw_state[0];
+
+    bmp_printf(FONT_SMALL, 0, 460,
+        "RAWLV %s buf=%08x en=%d",
+        reason, ram, raw_state[3]);
+}
+
+/*
+ * Always-on status overlay for diagnosing raw LV bring-up.
+ */
+mlv_diag_t mlv_diag = {0};
+
+/*
+ * M50 raw LV diagnostic task — lightweight status overlay.
+ *
+ * Now that the raw subsystem overrides are in place (direct RAM read at
+ * 0x0000D1C8 instead of EDMAC MMIO), this task just monitors raw_info
+ * to confirm everything is working.  It also shows the live Canon buffer
+ * pointer so we can verify it stays valid during recording.
+ */
+static void raw_lv_status_task(void *unused)
+{
+    (void) unused;
+
+    for (;;)
+    {
+        msleep(1000);
+        if (!lv || !DISPLAY_IS_ON) continue;
+
+        /* Show raw_info status (populated by raw_update_params) */
+        bmp_printf(FONT_SMALL, 0, 435,
+            "ri: buf=%x %dx%d p=%d bpp=%d",
+            (uint32_t)raw_info.buffer,
+            raw_info.width, raw_info.height,
+            raw_info.pitch, raw_info.bits_per_pixel);
+        bmp_printf(FONT_SMALL, 0, 455,
+            "ri: bl=%d wl=%d  reason=%s",
+            raw_info.black_level, raw_info.white_level,
+            raw_lv_fail_reason);
+    }
+}
+#endif
 
 /* We can only do custom buffer allocations with CONFIG_EDMAC_RAW_SLURP,
  * where the process of transferring the raw image to RAM is under our control.
@@ -904,6 +1182,9 @@ int raw_update_params_work()
         if (!raw_lv_is_enabled())
         {
             dbg_printf("LV raw disabled\n");
+#ifdef CONFIG_M50
+            raw_lv_fail_reason = "off";
+#endif
             return 0;
         }
 
@@ -911,6 +1192,9 @@ int raw_update_params_work()
         {
             /* LiveView raw data is invalid, wait a bit and request a retry */
             dbg_printf("LV raw invalid\n");
+#ifdef CONFIG_M50
+            raw_lv_fail_reason = "dirty";
+#endif
             return 0;
         }
 
@@ -931,12 +1215,18 @@ int raw_update_params_work()
         if (!raw_info.buffer)
         {
             dbg_printf("LV raw buffer null\n");
+#ifdef CONFIG_M50
+            raw_lv_fail_reason = "buf0";
+#endif
             return 0;
         }
 
         if (!raw_lv_get_resolution(&width, &height))
         {
             dbg_printf("LV RAW size error\n");
+#ifdef CONFIG_M50
+            raw_lv_fail_reason = "res0";
+#endif
             return 0;
         }
 
@@ -945,6 +1235,9 @@ int raw_update_params_work()
         if (width < 320 || height < 160)
         {
             dbg_printf("LV RAW size too small\n");
+#ifdef CONFIG_M50
+            raw_lv_fail_reason = "tiny";
+#endif
             return 0;
         }
 
@@ -1051,6 +1344,15 @@ int raw_update_params_work()
         // Horizontal y="0" height="38"
         skip_top    = 32;
         skip_left   = 86;
+        #endif
+
+        #ifdef CONFIG_M50
+        /* From MM1 raw image analysis:
+         * 34 rows optical black at top, 88 columns OB at left.
+         * Confirmed via pixel value inspection of 14-bit RGGB data.
+         * Active area: 2008x804 after OB crop. */
+        skip_top    = 34;
+        skip_left   = 88;
         #endif
 
         #ifdef CONFIG_6D2
@@ -1282,6 +1584,9 @@ int raw_update_params_work()
     {
         raw_set_geometry(width, height, skip_left, skip_right, skip_top, skip_bottom);
         dirty = 0;
+#ifdef CONFIG_M50
+        raw_lv_fail_reason = "OK";
+#endif
     }
 
     if (!recompute_black_and_white)
@@ -1306,6 +1611,9 @@ int raw_update_params_work()
     {
         /* return failure, and make sure the black level is recomputed at next call */
         dirty = 1;
+#ifdef CONFIG_M50
+        raw_lv_fail_reason = "black";
+#endif
 
         #if 0
         static int first_bad_frame = 1;
@@ -1372,7 +1680,10 @@ int raw_update_params_work()
          * so we do this by compensating the white level manually
          * warning: this may exceed 16383!
          */
-        int shad_gain = shamem_read(SHAD_GAIN_REGISTER);
+        int shad_gain = 3444;
+        #ifdef SHAD_GAIN_REGISTER
+        shad_gain = shamem_read(SHAD_GAIN_REGISTER);
+        #endif
 
         raw_info.white_level -= raw_info.black_level;
         raw_info.white_level = raw_info.white_level * 3444 / shad_gain; /* 0.25 EV correction, so LiveView matches CR2 exposure */
@@ -1458,6 +1769,10 @@ int raw_update_params()
     if (raw_info.bits_per_pixel != 14)
     {
         /* hack: this will disable all overlays at bit depths other than 14 */
+#ifdef CONFIG_M50
+        raw_lv_fail_reason = "bpp";
+        printf("[RAW] raw_update_params: bits_per_pixel=%d (expected 14)\n", raw_info.bits_per_pixel);
+#endif
         return 0;
     }
 
@@ -2119,6 +2434,10 @@ void FAST raw_lv_redirect_edmac(void* ptr)
 {
     #ifdef CONFIG_EDMAC_RAW_SLURP
     redirected_raw_buffer = (void*) CACHEABLE(ptr);
+    #elif defined(CONFIG_M50)
+    /* DIGIC 8 M50: No-op. Buffer redirect via 0xD1C8 crashes Canon's
+     * EIS/DAF subsystems. We read directly from Canon's raw buffer instead. */
+    (void)ptr;
     #else
     raw_lv_edmac->ram_addr = (uint32_t)CACHEABLE(ptr);
     #endif
@@ -2179,10 +2498,16 @@ int raw_lv_settings_still_valid()
 {
     /* should be fast enough for vsync calls */
     if (!lv_raw_enabled) return 0;
+#ifdef CONFIG_M50
+    /* On M50, raw geometry is fixed. Transient resolution reads during vsync
+     * must not kill active recording clips. */
+    return 1;
+#else
     int w, h;
     if (!raw_lv_get_resolution(&w, &h)) return 0;
     if (w != raw_info.width || h != raw_info.height) return 0;
     return 1;
+#endif
 }
 #endif // CONFIG_RAW_LIVEVIEW
 
@@ -2455,20 +2780,31 @@ static void raw_lv_enable()
 {
     /* make sure LiveView is fully started before enabling the raw flag */
     /* if enabled too early, right after the property is fired, the raw stream may not come up (race condition in Canon code?) */
+    raw_dbg_log("raw_lv_enable: start");
+    printf("[RAW] raw_lv_enable: waiting for LV frames...\n");
     wait_lv_frames(2);
 
+    printf("[RAW] raw_lv_enable: setting lv_raw_enabled=1\n");
     lv_raw_enabled = 1;
 
 #ifndef CONFIG_EDMAC_RAW_SLURP
 #ifdef CONFIG_DIGIC_VIII
     // On D8, lv_save_raw saves as YUV by default.
     // lv_set_mm configs this, here we select RAW.
-    call("lv_set_mm", 1);
-    // This is not needed (for now?) seems to set where in processing path the data is sourced.
-    // Defaults to 0, SAP::HEAD
-    //call("lv_set_raw_wp", 0);
+    raw_dbg_log("raw_lv_enable: pre_lv_set_mm");
+    printf("[RAW] raw_lv_enable: calling lv_set_mm(1)...\n");
+    raw_lv_ret_mm = call("lv_set_mm", 1);
+    raw_dbg_log("raw_lv_enable: post_lv_set_mm");
+    printf("[RAW] raw_lv_enable: lv_set_mm returned %d\n", raw_lv_ret_mm);
+    // lv_set_raw_wp: 0=SAP::HEAD (default), 2=SAP::HIVSHD
+    // WARNING: lv_set_raw_wp(2) crashes M50! Keep at 0 for now.
+    // call("lv_set_raw_wp", 0);
 #endif
-    call("lv_save_raw", 1);
+    raw_dbg_log("raw_lv_enable: pre_lv_save_raw");
+    printf("[RAW] raw_lv_enable: calling lv_save_raw(1)...\n");
+    raw_lv_ret_raw = call("lv_save_raw", 1);
+    raw_dbg_log("raw_lv_enable: post_lv_save_raw");
+    printf("[RAW] raw_lv_enable: lv_save_raw returned %d\n", raw_lv_ret_raw);
 #endif
 
 #ifdef DEFAULT_RAW_BUFFER
@@ -2511,6 +2847,9 @@ static void raw_lv_disable()
 
 #ifndef CONFIG_EDMAC_RAW_SLURP
     call("lv_save_raw", 0);
+    raw_lv_ret_raw = -999;
+    raw_lv_ret_mm = -999;
+    raw_lv_fail_reason = "disabled";
 #endif
 
 #ifdef CONFIG_ALLOCATE_RAW_LV_BUFFER
@@ -2525,18 +2864,29 @@ int raw_lv_is_enabled()
 
 static int raw_lv_request_count = 0;
 
+#ifdef CONFIG_M50
+static int raw_lv_get_request_count(void)
+{
+    return raw_lv_request_count;
+}
+#endif
+
 static REQUIRES(raw_sem)
 void raw_lv_update()
 {
     int new_state = raw_lv_request_count > 0;
     if (new_state && !lv_raw_enabled)
     {
+        raw_dbg_log("raw_lv_update: calling raw_lv_enable");
         raw_lv_enable();
+        raw_dbg_log("raw_lv_update: raw_lv_enable returned");
 
         for (int i = 0; i < 5; i++)
         {
+            raw_dbg_log("raw_lv_update: raw_update_params_work attempt");
             if (raw_update_params_work())
             {
+                raw_dbg_log("raw_lv_update: params OK");
                 module_exec_cbr(CBR_RAW_INFO_UPDATE);
                 break;
             }
@@ -2583,7 +2933,9 @@ void raw_lv_request()
     /* refresh VRAM parameters */
     /* the BMP_LOCK is just to make sure this will not conflict with other locks */
     /* (get_yuv422_vram will only call BMP_LOCK if it has to refresh something, that is, once in a blue moon) */
+    raw_dbg_log("raw_lv_request: pre BMP_LOCK");
     BMP_LOCK( get_yuv422_vram(); )
+    raw_dbg_log("raw_lv_request: post BMP_LOCK");
 
     /* this one should be called only in LiveView
      * but race conditions are not our friends...
@@ -2591,9 +2943,12 @@ void raw_lv_request()
      * which should clean up stuff, if any */
     //ASSERT(lv);
 
+    raw_dbg_log("raw_lv_request: pre raw_sem");
     take_semaphore(raw_sem, 0);
     raw_lv_request_count++;
+    raw_dbg_log("raw_lv_request: pre raw_lv_update");
     if (lv) raw_lv_update();
+    raw_dbg_log("raw_lv_request: post raw_lv_update");
     give_semaphore(raw_sem);
 }
 
@@ -2609,6 +2964,15 @@ void raw_lv_release()
 
 void raw_lv_request_bpp(int bpp)
 {
+#ifdef CONFIG_M50
+    /* DIGIC 8 M50: sensor readout is always 14-bit packed into RAM.
+     * Bit-depth reduction (10/12-bit) is done purely in software
+     * by the mlv_lite repacker. Attempting to write to 0xd0008094
+     * or changing raw_info.bits_per_pixel causes bus errors and
+     * breaks raw_update_params. */
+    (void)bpp;
+    return;
+#endif
     take_semaphore(raw_sem, 0);
 
     /* raw bit depth setup is done from PACK32_MODE register (mask 0x131) */
@@ -2624,7 +2988,7 @@ void raw_lv_request_bpp(int bpp)
             MODE_12BIT = 0x010,
             MODE_10BIT = 0x000,
         };
-    #elif defined(CONFIG_200D) | defined(CONFIG_6D2) | defined(CONFIG_7D2)
+    #elif defined(CONFIG_200D) | defined(CONFIG_6D2) | defined(CONFIG_7D2) | defined(CONFIG_M50)
     // FIXME currently doesn't do anything for 6D2 or 7D2 since
     // EngDrvOut() is a nop there.  Some definition of the enum is required to build.
     // See 200D for a safe filtered EngDrvOut() - which probably should be more
@@ -2669,6 +3033,10 @@ void raw_lv_request_bpp(int bpp)
 
 void raw_lv_request_digital_gain(int gain)
 {
+#ifdef CONFIG_M50
+    (void)gain;
+    return;
+#endif
     take_semaphore(raw_sem, 0);
 
     ASSERT(lv_raw_enabled);
@@ -2880,6 +3248,15 @@ static struct menu_entry debug_menus[] = {
 static void raw_init()
 {
     raw_sem = create_named_semaphore("raw_sem", SEM_CREATE_UNLOCKED);
+
+#ifdef CONFIG_M50
+#ifdef CONFIG_RAW_LIVEVIEW
+    /* background diagnostic overlay for early RAW LV bring-up.
+     * DISABLED: bmp_printf from this task may conflict with ML menu system.
+     * Uncomment for bring-up debugging only. */
+    // task_create("rawlvd", 0x1f, 0x1000, raw_lv_status_task, 0);
+#endif
+#endif
 
     #ifdef RAW_DEBUG_TYPE
     menu_add("Debug", debug_menus, COUNT(debug_menus));

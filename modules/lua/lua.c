@@ -236,7 +236,9 @@ LUA_CBR_FUNC(post_shoot, ctx, 500)
 LUA_CBR_FUNC(shoot_task, ctx, 500)
 LUA_CBR_FUNC(seconds_clock, ctx, 100)
 LUA_CBR_FUNC(custom_picture_taking, ctx, 1000)
+#ifdef FEATURE_INTERVALOMETER
 LUA_CBR_FUNC(intervalometer, get_interval_count(), 1000)
+#endif
 LUA_CBR_FUNC(config_save, ctx, 1000)
 
 #ifdef CONFIG_VSYNC_EVENTS
@@ -398,6 +400,7 @@ static int luaCB_event_newindex(lua_State * L)
     // Recommended: false if your code took a custom picture, true otherwise.
     // @function custom_picture_taking
     SCRIPT_CBR_SET(custom_picture_taking);
+#ifdef FEATURE_INTERVALOMETER
     /// Called after a picture is taken with the intervalometer.
     // @tparam int interval_count the current interval count
     // @treturn bool whether or not to continue executing CBRs for this event.
@@ -405,6 +408,7 @@ static int luaCB_event_newindex(lua_State * L)
     // Recommended: true (no real reason to block other CBRs here).
     // @function intervalometer
     SCRIPT_CBR_SET(intervalometer);
+#endif
     /// Called when configs are being saved; save any config data for your script here.
     /// 
     /// This event can be used in simple scripts; in this case, the CBR will be called
@@ -434,7 +438,9 @@ static const char * lua_event_fields[] =
     "seconds_clock",
     "keypress",
     "custom_picture_taking",
+#ifdef FEATURE_INTERVALOMETER
     "intervalometer",
+#endif
     "config_save",
     NULL
 };
@@ -465,7 +471,9 @@ static const luaL_Reg alllibs[] =
     {"menu", luaopen_menu},
     {"event", luaopen_event},
     {"dryos", luaopen_dryos},
+#ifdef FEATURE_INTERVALOMETER
     {"interval", luaopen_interval},
+#endif
     {"battery", luaopen_battery},
     {"task", luaopen_task},
     {"property", luaopen_property},
@@ -1297,7 +1305,7 @@ static void lua_load_task(int unused)
     struct fio_file *file = alloc_fio_file();
     struct fio_dirent * dirent = 0;
 
-    dirent = FIO_FindFirstEx(SCRIPTS_DIR, file);
+    dirent = FIO_FindFirstEx(SCRIPTS_DIR "/", file);
     if(!IS_ERROR(dirent))
     {
         do
@@ -1431,7 +1439,9 @@ MODULE_CBR(CBR_SHOOT_TASK, lua_shoot_task_cbr, 0)
 MODULE_CBR(CBR_SECONDS_CLOCK, lua_seconds_clock_cbr, 0)
 MODULE_CBR(CBR_KEYPRESS, lua_keypress_cbr, 0)
 MODULE_CBR(CBR_CUSTOM_PICTURE_TAKING, lua_custom_picture_taking_cbr, 0)
+#ifdef FEATURE_INTERVALOMETER
 MODULE_CBR(CBR_INTERVALOMETER, lua_intervalometer_cbr, 0)
+#endif
 MODULE_CBR(CBR_CONFIG_SAVE, lua_config_save_cbr, 0)
 
 #ifdef CONFIG_VSYNC_EVENTS
