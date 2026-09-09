@@ -411,113 +411,10 @@ void edmac_copy_rectangle_adv_cleanup(void)
    /* no-op for the CPU fallback */
 }
 
-/*
- * =====================================================================
- * EDMAC DMA copy via ELD Edmac Low Driver (DIGIC 8)
- * =====================================================================
- *
- * M50 EDMAC MMIO register offsets (from struct edmac_mmio):
- *   +0x08 : command  (0=idle, 2/3/0x11=reset, 0x12=stop)
- *   +0x20 : DMA enable flag a
- *   +0x24 : DMA enable flag b
- *   +0x3C : cbr_registered
- *   +0x48 : ys_xs    (packed 16|16)
- *   +0x4C : ya_xa    (packed 16|16)
- *   +0x50 : yb_xb    (packed 16|16)
- *   +0x54 : yn_xn    (packed 16|16)
- *   +0x58 : off1s
- *   +0x5C : off2s
- *   +0x60 : off1a
- *   +0x64 : off2a
- *   +0x68 : off1b
- *   +0x6C : off2b
- *   +0x70 : off3
- *   +0xA0 : ram_addr     (primary address)
- *   +0xAC : ram_addr2    (secondary address, possibly for mem-to-mem)
- *   +0xB4 : status/ack   (1=after stop, 2=after reset)
- *   +0xC0 : transfer_mode (0-3)
- *   +0xDC : start trigger (write 1 to start)
- *
- * Channel table in ROM at 0xE0DD7BA0:
- *   Each entry 8 bytes: {uint32_t mmio_base, uint32_t flags}
- *   76 channels total (0x00-0x4B)
- *
- * ELD Edmac functions (stubs in stubs.S):
- *   eld_edmac_reset(ch)             - reset EDMAC channel
- *   eld_edmac_clear_enable(ch)      - clear DMA enable flags
- *   eld_edmac_set_addr(ch, addr)    - set ram_addr [+0xA0]
- *   eld_edmac_set_addr2(ch, addr)   - set second addr [+0xAC]
- *   eld_edmac_set_geom(ch, info*)   - write edmac_info geometry
- *   eld_edmac_set_mode(ch, mode)    - set transfer_mode [+0xC0]
- *   eld_edmac_start(ch)             - start (flag check + trigger)
- *   eld_edmac_stop(ch)              - stop channel
- */
-
-/* ELD Edmac function declarations (addresses in stubs.S) */
-extern void eld_edmac_init(uint32_t channel);
-extern void eld_edmac_reset(uint32_t channel);
-extern void eld_edmac_stop(uint32_t channel);
-extern void eld_edmac_config(uint32_t channel, void *config, uint32_t mode);
-extern void eld_edmac_clear_enable(uint32_t channel);
-extern void eld_edmac_set_enable(uint32_t channel);
-extern void eld_edmac_set_addr(uint32_t channel, uint32_t addr);
-extern void eld_edmac_set_addr2(uint32_t channel, uint32_t addr);
-extern void eld_edmac_set_geom(uint32_t channel, struct edmac_info *info);
-extern void eld_edmac_set_mode(uint32_t channel, uint32_t mode);
-extern void eld_edmac_start(uint32_t channel);
-extern void eld_edmac_trigger(uint32_t channel);
-extern void eld_edmac_irq_enable(uint32_t channel);
-
-/* DarkCurCor mem-to-mem Layer 2 functions (proven working in v5.1 test) */
-extern void m2m_InitMem2MemModule(void *ch_pair);
-extern void m2m_store_struct(void *cbr, uint32_t arg);
-extern void m2m_reinit_struct(void);
-extern void m2m_cleanup_channels(void);
-extern void m2m_set_addrs(uint32_t *addr_pair);
-extern void m2m_set_geom_mode(uint32_t *geom_desc);
-extern void m2m_start_connect(void);
-extern uint32_t m2m_resource_lock(void *res_entry, uint32_t flags);
-extern void m2m_resource_unlock(uint32_t handle);
-extern void m2m_pwr_wake(void);
-extern void m2m_pwr_sleep(void);
-
-/* EfmErsc resource locking declarations */
-extern void *EfmErscCreateLockEntry(uint32_t *resIds, uint32_t resIdCount, uint32_t flags);
-extern uint32_t EfmErscLockResources(void *lockEntry);
-extern uint32_t EfmErscUnLockResources(void);
-extern uint32_t EfmErscDeleteLockEntry(void);
-
-/* DarkCurCor mem-to-mem channel pair (proven in v5.1: 64/64 words)
- *   Write (source):      ch 0x3D, MMIO 0xD0487600
- *   Read  (destination): ch 0x18, MMIO 0xD0487100
- * ROM data: ch_pair at 0xE0F72640, res_entry at 0xE0F72638
- */
-#define M2M_WRITE_CH    0x3D
-#define M2M_READ_CH     0x18
-#define M2M_WR_MMIO     0xD0487600
-#define M2M_RD_MMIO     0xD0487100
-#define DARKCURCOR_RES_ENTRY  ((void *)0xE0F72638)
-#define DARKCURCOR_CH_PAIR    ((void *)0xE0F72640)
-#define M2M_NOP_CBR           ((void *)0xE084DF49)
-
-/* Set to 1 to enable EDMAC DMA copy, 0 for CPU fallback.
- * Disabled (0) on M50: hijacking DarkCurCor channels (0x3D/0x18) during LiveView
- * conflicts with Canon's image sensor pipeline and causes Err 70.
- * The CPU fallback takes ~3ms and is completely stable. */
-static int edmac_dma_enabled = 0;
-
-static void edmac_copy_rectangle_cpu(
-   uint8_t *dst, uint8_t *src,
-   int src_width, int dst_width,
-   int w, int h)
-{
-   for (int y = 0; y < h; y++)
-   {
-      memcpy(dst, src, (size_t) w);
-      src += src_width;
-      dst += dst_width;
-   }
-}
+/* The generic rectangle API remains the synchronous CPU fallback. RAW DMA
+ * uses an explicit, versioned entry point with an error result and ownership
+ * contract; a failed DMA must never trigger these success callbacks. */
+#include "m50_dma_impl.h"
 
 void* edmac_copy_rectangle_cbr_start(void* dst, void* src,
                             int src_width, int src_x, int src_y,
@@ -525,78 +422,15 @@ void* edmac_copy_rectangle_cbr_start(void* dst, void* src,
                             int w, int h,
                             void (*cbr_r)(void*), void (*cbr_w)(void*), void *cbr_ctx)
 {
-   if (!dst || !src || w <= 0 || h <= 0 || src_width <= 0 || dst_width <= 0)
-   {
+   if (!dst || !src || w <= 0 || h <= 0 || src_width < w || dst_width < w ||
+       src_x < 0 || src_y < 0 || dst_x < 0 || dst_y < 0 ||
+       src_x > src_width - w || dst_x > dst_width - w)
       return NULL;
-   }
 
-   uint8_t* s = (uint8_t*) src + src_y * src_width + src_x;
-   uint8_t* d = (uint8_t*) dst + dst_y * dst_width + dst_x;
-
-   if (edmac_dma_enabled)
-   {
-      /* Flush cache before DMA if source is in cacheable memory */
-      if ((uint32_t)s < 0x40000000)
-         sync_caches();
-
-      /* Source geometry (write channel reads FROM source memory) */
-      struct edmac_info src_geom = { 0 };
-      src_geom.xb = w;                   /* bytes per line */
-      src_geom.yb = h - 1;              /* line count minus 1 */
-      src_geom.off1b = src_width - w;    /* skip at end of each source row */
-
-      /* Destination geometry (read channel writes TO dest memory) */
-      struct edmac_info dst_geom = { 0 };
-      dst_geom.xb = w;
-      dst_geom.yb = h - 1;
-      dst_geom.off1b = dst_width - w;
-
-      /* Layer 2 descriptors:
-       *   addr_pair[0] = write_ch source, addr_pair[1] = read_ch dest
-       *   geom_desc = {write_geom*, read_geom*, mode} */
-      uint32_t addr_pair[2] = { (uint32_t)s, (uint32_t)d };
-      uint32_t geom_desc[3] = {
-         (uint32_t)&src_geom,    /* write channel geometry (source) */
-         (uint32_t)&dst_geom,    /* read channel geometry (dest) */
-         1                       /* mode = 1 (standard DMA) */
-      };
-
-      /* Power up DMA engine and lock resources */
-      uint32_t lock = m2m_resource_lock(DARKCURCOR_RES_ENTRY, 2);
-      m2m_pwr_wake();
-
-      /* Initialize channels, crossbar, ISRs via proven Layer 2 API */
-      m2m_InitMem2MemModule(DARKCURCOR_CH_PAIR);
-      m2m_store_struct(M2M_NOP_CBR, 0);
-      m2m_set_addrs(addr_pair);
-      m2m_set_geom_mode(geom_desc);
-
-      /* Enable DMA on both channels + IRQ on read (dest) channel */
-      eld_edmac_set_enable(M2M_READ_CH);
-      eld_edmac_set_enable(M2M_WRITE_CH);
-      eld_edmac_irq_enable(M2M_READ_CH);
-
-      /* Data barrier, then trigger transfer */
-      asm volatile ("dsb sy" ::: "memory");
-      m2m_start_connect();
-
-      /* Poll write channel CONN_ST for completion (transitions 2→0) */
-      volatile uint32_t *wr_conn = (volatile uint32_t *)(M2M_WR_MMIO + 0xB4);
-      int timeout = 1000000;
-      while (*wr_conn != 0 && --timeout > 0) { }
-
-      /* Cleanup: reset state, power down */
-      m2m_reinit_struct();
-      m2m_cleanup_channels();
-      m2m_pwr_sleep();
-      m2m_resource_unlock(lock);
-   }
-   else
-   {
-      /* CPU fallback: simple row-by-row memcpy */
-      edmac_copy_rectangle_cpu(d, s, src_width, dst_width, w, h);
-   }
-
+   uint8_t *s = (uint8_t *)src + src_y * src_width + src_x;
+   uint8_t *d = (uint8_t *)dst + dst_y * dst_width + dst_x;
+   for (int y = 0; y < h; y++, s += src_width, d += dst_width)
+      memcpy(d, s, w);
    if (cbr_r) cbr_r(cbr_ctx);
    if (cbr_w) cbr_w(cbr_ctx);
    return dst;
@@ -630,6 +464,8 @@ static void keep_raw_video_shim_symbols(void* unused)
       (void*) edmac_memcpy_res_unlock,
       (void*) edmac_copy_rectangle_adv_cleanup,
       (void*) edmac_copy_rectangle_cbr_start,
+      (void*) m50_raw_dma_copy_v3,
+      (void*) m50_raw_dma_prepare_v3,
       (void*) edmac_find_divider,
       (void*) edmac_get_base,
       (void*) edmac_get_length,

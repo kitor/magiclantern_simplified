@@ -35,6 +35,8 @@ NSTUB(MAIN_FIRMWARE_ADDR, firmware_entry)
 THUMB_FN(0xE00400FC,  cstart)                               /* calls bzero32 and create_init_task(..., init_task, ...) */
 THUMB_FN(0xE0578D64,  bzero32)                              /* zeros out a data structure */
 THUMB_FN(0xE0143CFC,  create_init_task)                     /* low-level DryOS initialization */
+THUMB_FN(0xE00EA712,  m50_outer_invalidate)                /* (start, bytes), outer invalidate by address */
+THUMB_FN(0xE0577768,  m50_dcache_invalidate)               /* (start, bytes), invalidate by MVA, DSB */
 THUMB_FN(0xE05777D0,  dcache_clean)                         /* loop with MCR p15 c7,c10,1; DSB */
 THUMB_FN(0xe00ea6f4,  dcache_clean_multicore)               /* loop writing to c11007b0, called after dcache_clean by copy_mmu_tables() */
 THUMB_FN(0xE05778A4,  icache_invalidate)                    /* loop with MCR p15 c7,c5,1; c7,c1,6; c7,c1,0; ISB */
@@ -268,8 +270,8 @@ DATA_PTR(   0x139b8,  LiveViewApp_dialog)                   // in StartLiveViewA
 // Channel table in ROM at 0xE0DD7BA0 (76 entries, 8 bytes each)
 THUMB_FN(0xE054A30E,  eld_edmac_init)                       // clear channel config, zero cbr_registered
 THUMB_FN(0xE0549E8C,  eld_edmac_reset)                      // full channel reset: [+8]=2/3, [+0x1C/0x18]=0, [+0xB4]=2
-THUMB_FN(0xE0549E52,  eld_edmac_stop)                       // stop channel: [+8]=0x12, DSB, [+0xB4]=1
-THUMB_FN(0xE0549F76,  eld_edmac_config)                     // register channel: set config ptr, [+0x3C]=1
+THUMB_FN(0xE0549E52,  eld_edmac_stop)                       // historical name: actually CONNECT/START, never use as abort
+THUMB_FN(0xE0549F76,  eld_edmac_config)                     // historical name: actually set IRQ callback (ch, callback, ctx)
 THUMB_FN(0xE054A4B2,  eld_edmac_clear_enable)               // clear DMA enable: [+0x20]=0, [+0x24]=0
 THUMB_FN(0xE054A4F2,  eld_edmac_set_enable)                 // set DMA enable: [+0x20]=1, [+0x24]=1
 THUMB_FN(0xE054A9AE,  eld_edmac_set_addr)                   // set ram_addr: [+0xA0]=addr
@@ -278,7 +280,7 @@ THUMB_FN(0xE054A9BA,  eld_edmac_set_geom)                   // write edmac_info 
 THUMB_FN(0xE054AEB0,  eld_edmac_set_mode)                   // set transfer_mode: [+0xC0] = mode (0-3)
 THUMB_FN(0xE054AF3C,  eld_edmac_start)                      // check flags + write [+0xDC]=1 (start trigger)
 THUMB_FN(0xE054BF18,  eld_edmac_trigger)                    // write [+0xDC]=1 directly (no flag check)
-THUMB_FN(0xE054A386,  eld_edmac_irq_enable)                 // enable IRQ for channel (BoomerSelector)
+THUMB_FN(0xE054A386,  eld_edmac_irq_enable)                 // Boomer VD kick enable; destination 0x18 ONLY, source 0x3D asserts
 THUMB_FN(0xE054A7CC,  eld_edmac_start_arm)                  // arm channel for transfer
 
 /** DarkCurCor mem-to-mem Layer 2 wrapper functions **/
@@ -286,12 +288,12 @@ THUMB_FN(0xE054A7CC,  eld_edmac_start_arm)                  // arm channel for t
 // Global state struct at RAM 0x00016F38, channel pair at ROM 0xE0F72640 = {0x3D, 0x18}
 THUMB_FN(0xE084DE9C,  m2m_InitMem2MemModule)                // (ch_pair*) init channels, crossbar, ISRs
 THUMB_FN(0xE084DF40,  m2m_store_struct)                     // (cbr, arg) store completion callback
-THUMB_FN(0xE084DF4A,  m2m_reinit_struct)                    // clear completion state
-THUMB_FN(0xE084DF26,  m2m_cleanup_channels)                 // abort + reset both channels
+THUMB_FN(0xE084DF4A,  m2m_reinit_struct)                    // reset callback/context; ISR clears completion bits
+THUMB_FN(0xE084DF26,  m2m_cleanup_channels)                 // de-init both channels, disconnect destination; not a proven abort
 THUMB_FN(0xE084DF70,  m2m_set_addrs)                        // (addr_pair*) set source/dest DMA addresses
 THUMB_FN(0xE084DF8A,  m2m_set_geom_mode)                    // (geom_desc*) set geometry + transfer mode
 THUMB_FN(0xE084DF56,  m2m_start_connect)                    // arm + connect (triggers DMA transfer)
-THUMB_FN(0xE084B380,  m2m_resource_lock)                    // (res_entry*, flags) → lock handle
+THUMB_FN(0xE084B380,  m2m_resource_lock)                    // (resource_ids*, count) create entry + blocking acquire
 THUMB_FN(0xE084B3AC,  m2m_resource_unlock)                  // (handle) release DMA resources
 THUMB_FN(0xE084B446,  m2m_pwr_wake)                         // power up DMA engine
 THUMB_FN(0xE084B44E,  m2m_pwr_sleep)                        // power down DMA engine

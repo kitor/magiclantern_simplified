@@ -68,6 +68,9 @@
 #include "fps.h"
 #include "../mlv_rec/mlv.h"
 #include "m50_timing.h"
+#include "m50_profile.h"
+#include "m50_repack.h"
+#include "m50-dma.h"
 #include "../mlv_rec/mlv_rec_interface.h"
 #include "../../trace/trace.h"
 #include "powersave.h"
@@ -168,6 +171,8 @@ static CONFIG_INT("raw.h264.proxy", h264_proxy_menu, 0);
 static CONFIG_INT("raw.sync_beep", sync_beep, 1);
 
 static CONFIG_INT("raw.output_format", output_format, 3);
+/* Experimental build: a known-data DMA check gates every recording. */
+static CONFIG_INT("raw.m50_dma", m50_dma_enabled, 1);
 #define OUTPUT_14BIT_NATIVE 0
 #define OUTPUT_12BIT_UNCOMPRESSED 1
 #define OUTPUT_10BIT_UNCOMPRESSED 2
@@ -328,6 +333,7 @@ struct frame_slot
         SLOT_CAPTURING,     /* in progress */
         SLOT_LOCKED,        /* locked by some other module */
         SLOT_FULL,          /* contains fully captured image data */
+        SLOT_DROPPED,       /* rejected snapshot; writer must dequeue before reuse */
         SLOT_WRITING        /* it's being saved to card */
     } status;
 };
@@ -367,9 +373,19 @@ static volatile                 uint32_t skip_frames = 0;
 
 /* for compress_task */
 static struct msg_queue * compress_mq = 0;
-/* Covers both a queued capture and its complete CPU copy/repack. The EDMAC
+/* Covers a queued capture through its entire copy and packing. The EDMAC
  * flag only covers the memcpy branch and cannot protect the 10/12-bit worker. */
 static volatile int m50_copy_pending = 0;
+static struct m50_profile m50_profile;
+static void *m50_snapshot; /* reserved from shoot suite, never the live source */
+/* TCC resolves weak imports while loading; its runtime symbol table is then
+ * unloaded, so module_get_symbol(NULL, ...) cannot be used here. */
+extern int m50_raw_dma_copy_v3(struct m50_dma_request *) __attribute__((weak));
+extern int m50_raw_dma_prepare_v3(void *, uint32_t) __attribute__((weak));
+static m50_dma_copy_fn m50_dma_copy;
+static m50_dma_prepare_fn m50_dma_prepare;
+static int m50_dma_recording;
+static char m50_profile_path[128];
 
 static GUARDED_BY(RawRecTask)   mlv_file_hdr_t file_hdr[CARD_COUNT];
 static GUARDED_BY(RawRecTask)   mlv_rawi_hdr_t rawi_hdr;
@@ -1434,7 +1450,7 @@ int add_mem_suite(struct memSuite * mem_suite, int chunk_index, int max_frame_si
             intptr_t ptr = (intptr_t) GetMemoryAddressOfMemoryChunk(chunk);
 
             /* already used for a full-size buffer? */
-            if ((void*)ptr == fullsize_buffers[0])
+            if ((void*)ptr == fullsize_buffers[0] || (is_m50 && (void*)ptr == m50_snapshot))
             {
                 ptr += fullres_buf_size;
                 size -= fullres_buf_size;
@@ -1445,6 +1461,9 @@ int add_mem_suite(struct memSuite * mem_suite, int chunk_index, int max_frame_si
             intptr_t ptr_raw = ptr;
             ptr   = (ptr + 63) & ~63;
             size -= (ptr - ptr_raw);
+            /* DMA slots remain uncached through headers, guards, packing and
+             * file I/O. Cache ownership is established once before recording. */
+            if (is_m50 && m50_dma_enabled) ptr = (intptr_t)UNCACHEABLE(ptr);
 
             /* fit as many frames as we can */
             int group_size = 0;
@@ -1504,6 +1523,7 @@ void free_buffers()
 
     /* this buffer is allocated from one of the suites -> nothing to do */
     fullsize_buffers[0] = 0;
+    m50_snapshot = 0;
 
     if (fullsize_buffers[1] && raw_info.buffer)
     {
@@ -1563,9 +1583,10 @@ int setup_buffers()
      * depending on how the EDMAC size was interpreted back then
      * todo: double-check (for now, allocate a bit more, just in case)
      */
-    int fullres_buf_size = raw_info.width * (raw_info.height + 2) * BPP/8;
+    int fullres_buf_size = raw_info.width * (raw_info.height + 2) * (is_m50 ? 14 : BPP)/8;
 
-    int pre_recording_settings = pre_record | (rec_trigger << 8);
+    int pre_recording_settings = pre_record | (rec_trigger << 8) |
+        ((is_m50 && m50_dma_enabled) << 16);
 
     if (configured_max_frame_size == max_frame_size &&
         configured_fullres_buf_size == fullres_buf_size &&
@@ -1596,6 +1617,7 @@ int setup_buffers()
 
     /* discard old full-size buffers */
     fullsize_buffers[0] = fullsize_buffers[1] = 0;
+    m50_snapshot = 0;
 
     if (is_m50)
     {
@@ -1606,6 +1628,13 @@ int setup_buffers()
         printf("M50: single-buffer mode (redirect is no-op).\n");
         fullsize_buffers[0] = CACHEABLE(raw_info.buffer);
         fullsize_buffers[1] = CACHEABLE(raw_info.buffer);
+        if (m50_dma_enabled)
+        {
+            m50_snapshot = alloc_fullsize_buffer(shoot_mem_suite, fullres_buf_size);
+            if (!m50_snapshot)
+                m50_snapshot = alloc_fullsize_buffer(srm_mem_suite, fullres_buf_size);
+            if (!m50_snapshot) return 0;
+        }
     }
     else
     {
@@ -2093,7 +2122,7 @@ unsigned int raw_rec_polling_cbr(unsigned int unused)
         {
             gui_uilock(UILOCK_EVERYTHING);
             take_semaphore(settings_sem, 0);
-            free_buffers();
+            if (RAW_IS_IDLE) free_buffers();
             give_semaphore(settings_sem);
             gui_uilock(UILOCK_NONE);
         }
@@ -2101,12 +2130,17 @@ unsigned int raw_rec_polling_cbr(unsigned int unused)
     }
 
     /* reallocate buffers if needed (only if not recording) */
-    if (realloc && (RAW_IS_IDLE || RAW_IS_PREPARING) && gui_state == GUISTATE_IDLE)
+    /* M50 preparation owns its suites through self-test and recording start. */
+    if (realloc && (RAW_IS_IDLE || (RAW_IS_PREPARING && !is_m50)) && gui_state == GUISTATE_IDLE)
     {
         gui_uilock(UILOCK_EVERYTHING);
         take_semaphore(settings_sem, 0);
-        realloc_buffers();
-        realloc = 0;
+        /* Recheck after acquiring: recording may have started while waiting. */
+        if (RAW_IS_IDLE || (RAW_IS_PREPARING && !is_m50))
+        {
+            realloc_buffers();
+            realloc = 0;
+        }
         give_semaphore(settings_sem);
         gui_uilock(UILOCK_NONE);
     }
@@ -2751,6 +2785,98 @@ static void rec_dbg_log(const char* msg)
     (void)msg;
 }
 
+/* M50 timing reports are written only after capture has stopped. No file
+ * creation, printing or formatting occurs in vsync or the copy worker. */
+static int m50_profile_write_frames(FILE *f, void *ptr, int size)
+{
+    if (!is_m50) return FIO_WriteFile(f, ptr, size);
+    uint32_t start = (uint32_t)get_us_clock();
+    int result = FIO_WriteFile(f, ptr, size);
+    m50_duration_add(&m50_profile.write, (uint32_t)get_us_clock() - start);
+    if (result > 0) m50_profile.write_bytes += result;
+    if (result != size) m50_profile.write_errors++;
+    return result;
+}
+
+static int m50_profile_write_row(FILE *f, const char *name,
+    const uint32_t *values, unsigned count)
+{
+    char line[128];
+    unsigned len = m50_profile_csv_row(line, sizeof(line), name, values, count);
+    return len && FIO_WriteFile(f, line, len) == (int)len;
+}
+
+static int m50_profile_line(FILE *f, const char *name, const struct m50_duration *d)
+{
+    uint32_t values[] = { d->count, d->min_us, m50_duration_mean(d), d->max_us };
+    if (!m50_profile_write_row(f, name, values, 4)) return 0;
+    char label[64];
+    int len = snprintf(label, sizeof(label), "%s_bin_us", name);
+    if (len <= 0 || len >= (int)sizeof(label)) return 0;
+    for (unsigned i = 0; i < M50_PROFILE_BINS; i++)
+    {
+        uint32_t bin[] = { i * 5000,
+            i == M50_PROFILE_BINS - 1 ? 0 : (i + 1) * 5000, d->bins[i] };
+        if (!m50_profile_write_row(f, label, bin, 3)) return 0;
+    }
+    return 1;
+}
+
+static void m50_profile_save(void)
+{
+    if (!is_m50 || !m50_profile_path[0] || !m50_profile.hooks) return;
+    /* One capture can still be running when LiveView disappears. Do not
+     * race its aggregation or add I/O load while it is accessing the sensor. */
+    if (m50_copy_pending)
+    {
+        NotifyBox(5000, "Timing report skipped: copy pending");
+        return;
+    }
+    FILE *f = FIO_CreateFile(m50_profile_path);
+    if (!f) return;
+    char line[512];
+    int len = snprintf(line, sizeof(line),
+        "M50_TIMING_V2\nwidth,%d\nheight,%d\noutput_bits,%d\ncanon_fps,%d\n"
+        "canon_resolution,%d\ncanon_crop,%d\nzoom,%d\ncopy_priority,26\n"
+        "metric,count,min_us,mean_us,max_us\n",
+        m50_profile.width, m50_profile.height, m50_profile.bits, m50_profile.canon_fps,
+        m50_profile.canon_resolution, m50_profile.canon_crop, m50_profile.zoom);
+    int ok = len > 0 && len < (int)sizeof(line) && FIO_WriteFile(f, line, len) == len;
+    if (ok) ok = m50_profile_write_row(f, "hooks", &m50_profile.hooks, 1);
+    if (ok) ok = m50_profile_write_row(f, "busy_skips", &m50_profile.busy_skips, 1);
+    if (ok) ok = m50_profile_write_row(f, "no_slot_skips", &m50_profile.no_slot_skips, 1);
+    if (ok) ok = m50_profile_write_row(f, "post_failures", &m50_profile.post_failures, 1);
+    if (ok) ok = m50_profile_write_row(f, "write_errors", &m50_profile.write_errors, 1);
+    if (ok) ok = m50_profile_line(f, "hook_interval", &m50_profile.hook);
+    if (ok) ok = m50_profile_line(f, "worker_dispatch", &m50_profile.dispatch);
+    if (ok) ok = m50_profile_line(f, "copy_wall_time", &m50_profile.copy);
+    if (ok) ok = m50_profile_line(f, "card_write_call", &m50_profile.write);
+    if (ok) ok = m50_profile_write_row(f, "dma_enabled", &m50_profile.dma_enabled, 1);
+    if (ok) ok = m50_profile_write_row(f, "dma_errors", &m50_profile.dma_errors, 1);
+    if (ok) ok = m50_profile_write_row(f, "dma_dropped", &m50_profile.dma_dropped, 1);
+    if (ok) ok = m50_profile_line(f, "dma_wake", &m50_profile.dma_wake);
+    if (ok) ok = m50_profile_line(f, "dma_init", &m50_profile.dma_init);
+    if (ok) ok = m50_profile_line(f, "dma_config", &m50_profile.dma_config);
+    if (ok) ok = m50_profile_line(f, "dma_lock", &m50_profile.dma_lock);
+    if (ok) ok = m50_profile_line(f, "dma_transfer", &m50_profile.dma_transfer);
+    if (ok) ok = m50_profile_line(f, "dma_cache_before", &m50_profile.dma_cache_before);
+    if (ok) ok = m50_profile_line(f, "dma_cache_after", &m50_profile.dma_cache_after);
+    if (ok) ok = m50_profile_line(f, "dma_age_start", &m50_profile.dma_age_start);
+    if (ok) ok = m50_profile_line(f, "dma_age_end", &m50_profile.dma_age_end);
+    if (ok) ok = m50_profile_line(f, "packing", &m50_profile.packing);
+    if (ok)
+    {
+        /* Rate while inside FIO_WriteFile, not a claim of sustained throughput.
+         * Both MB and kB use decimal units, as in the card rating. */
+        uint32_t kbps = m50_profile.write.total_us
+            ? m50_profile.write_bytes * 1000 / m50_profile.write.total_us : 0;
+        ok = m50_profile_write_row(f, "card_write_call_kB_s", &kbps, 1);
+    }
+    FIO_CloseFile(f);
+    if (!ok) FIO_RemoveFile(m50_profile_path);
+    NotifyBox(5000, ok ? "Timing CSV saved beside MLV" : "Timing CSV write failed");
+}
+
 /* Canon RAW and uncompressed MLV store MSB-first samples in little-endian
  * 16-bit words (see raw_pixblock in raw.h). Work in groups of eight pixels:
  * both the 14-bit input and 10/12-bit output end on a word boundary.
@@ -2836,9 +2962,8 @@ static void compress_task()
             rec_dbg_log("compress_task: got INT_MAX");
             if (is_m50)
             {
-                /* M50: ResLock (CreateResLockEntry) returns NULL on DIGIC 8.
-                 * The m2m DMA override does its own m2m_resource_lock internally. */
-                printf("M50: recording start (DMA resource lock handled by m2m).\n");
+                printf("M50: recording start (%s).\n",
+                    m50_dma_recording ? "DMA snapshots" : "CPU baseline");
             }
             else
             {
@@ -2889,6 +3014,14 @@ static void compress_task()
             continue;
         }
 
+        if (is_m50 && RAW_IS_FINISHING)
+        {
+            /* Do not start a queued read after a stop/mode change. The
+             * stopping task will discard this incomplete slot after drain. */
+            m50_copy_pending = 0;
+            continue;
+        }
+
         rec_dbg_log("compress_task: got slot message");
 
         int fullsize_index = msg >> 16;
@@ -2899,11 +3032,84 @@ static void compress_task()
 
         void* out_ptr = slots[slot_index].ptr + VIDF_HDR_SIZE;
         void* fullSizeBuffer = fullsize_buffers[fullsize_index];
+        uint32_t m50_copy_start = 0;
+        if (is_m50)
+        {
+            m50_copy_start = (uint32_t)get_us_clock();
+            uint32_t queued = (uint32_t)(mlv_start_timestamp +
+                ((mlv_vidf_hdr_t *)slots[slot_index].ptr)->timestamp);
+            m50_duration_add(&m50_profile.dispatch, m50_copy_start - queued);
+        }
+
 
         /* GET_DIGIC_TIMER is broken on DIGIC 8 (register 0xC0242014 invalid) */
         edmac_start_clock = is_m50 ? (uint32_t)(get_ms_clock() * 1000) : GET_DIGIC_TIMER();
 
-        if (OUTPUT_COMPRESSION)
+        if (is_m50 && m50_dma_recording)
+        {
+            uint32_t queued = (uint32_t)(mlv_start_timestamp +
+                ((mlv_vidf_hdr_t *)slots[slot_index].ptr)->timestamp);
+            uint32_t fps = fps_get_current_x1000();
+            struct m50_dma_request r = {
+                .src = (uint8_t *)fullSizeBuffer + (skip_y & ~1) * raw_info.pitch +
+                       ((skip_x + 7) / 8) * 14,
+                .dst = BPP == 14 ? out_ptr : m50_snapshot,
+                .src_pitch = raw_info.pitch, .dst_pitch = res_x * 14 / 8,
+                .width = res_x * 14 / 8, .height = res_y,
+                .source_time_us = queued,
+                .max_age_us = fps ? 1000000000U / fps : 33333,
+                .dst_policy = BPP == 14 ? M50_DMA_DST_UNCACHED : M50_DMA_DST_READONLY
+            };
+            int result = m50_dma_copy(&r);
+            m50_duration_add(&m50_profile.dma_lock, r.lock_us);
+            m50_duration_add(&m50_profile.dma_transfer, r.transfer_us);
+            m50_duration_add(&m50_profile.dma_wake, r.wake_us);
+            m50_duration_add(&m50_profile.dma_init, r.init_us);
+            m50_duration_add(&m50_profile.dma_config, r.config_us);
+            m50_duration_add(&m50_profile.dma_cache_before, r.cache_before_us);
+            m50_duration_add(&m50_profile.dma_cache_after, r.cache_after_us);
+            m50_duration_add(&m50_profile.dma_age_start, r.age_at_start_us);
+            m50_duration_add(&m50_profile.dma_age_end, r.age_at_end_us);
+            if (result != M50_DMA_OK)
+            {
+                if (result == M50_DMA_STALE && raw_recording_state == RAW_RECORDING &&
+                    !pre_record && !rec_trigger)
+                {
+                    /* DMA has returned with ownership released. Keep this slot
+                     * unavailable until its queued entry is consumed. */
+                    m50_profile.dma_dropped++;
+                    skipped_frames++;
+                    slots[slot_index].status = SLOT_DROPPED;
+                    asm volatile ("" ::: "memory");
+                    m50_copy_pending = 0;
+                    continue;
+                }
+                m50_profile.dma_errors++;
+                raw_recording_state = RAW_FINISHING;
+                /* Leave the queued slot incomplete. Stop/drain discards it;
+                 * publishing SLOT_FULL here would turn a failed DMA into video. */
+                buffer_full = 1;
+                asm volatile ("" ::: "memory");
+                m50_copy_pending = 0;
+                NotifyBox(10000, "RAW DMA stopped (%d). See timing CSV.", result);
+                continue;
+            }
+            uint32_t packing_start = (uint32_t)get_us_clock();
+            if (BPP != 14)
+            {
+                const uint8_t *snapshot = CACHEABLE(m50_snapshot);
+                for (int y = 0; y < res_y; y++)
+                {
+                    uint8_t *dst = (uint8_t *)out_ptr + y * res_x * BPP / 8;
+                    const uint8_t *src = snapshot + y * res_x * 14 / 8;
+                    if (BPP == 12) m50_repack_14_to_12(dst, src, res_x);
+                    else m50_repack_14_to_10(dst, src, res_x);
+                }
+            }
+            m50_duration_add(&m50_profile.packing, (uint32_t)get_us_clock() - packing_start);
+            /* Preserve the original after-frame sentinel to detect overruns. */
+        }
+        else if (OUTPUT_COMPRESSION)
         {
             /* PackMem appears to require stricter memory alignment */
             ASSERT(((uint32_t)out_ptr & 0x3F) == 0);
@@ -2994,9 +3200,8 @@ static void compress_task()
         }
         else
         {
-            /* M50: edmac_copy_rectangle_cbr_start is SYNCHRONOUS (polls until done,
-             * then calls callbacks inline before returning). So edmac_active is set
-             * to 0 by edmac_cbr_w before this function returns. No race condition. */
+            /* M50 CPU baseline: this API copies synchronously and invokes
+             * callbacks inline. The DMA path above has its own error contract. */
             edmac_active = 1;
             edmac_copy_rectangle_cbr_start(
                 (void*)out_ptr, fullSizeBuffer,
@@ -3008,6 +3213,9 @@ static void compress_task()
             /* on M50: edmac_active is already 0 here (set by edmac_cbr_w synchronously) */
         }
         
+        if (is_m50)
+            m50_duration_add(&m50_profile.copy, (uint32_t)get_us_clock() - m50_copy_start);
+
         /* mark it as completed */
         slots[slot_index].status = SLOT_FULL;
         asm volatile ("" ::: "memory");
@@ -3045,6 +3253,7 @@ void process_frame(int next_fullsize_buffer_pos)
             /* Canon has only one live source buffer. Never queue another
              * read while a CPU copy/repack is pending or running. */
             skipped_frames++;
+            m50_profile.busy_skips++;
             return;
         }
         else
@@ -3077,7 +3286,10 @@ void process_frame(int next_fullsize_buffer_pos)
     if (capture_slot >= 0)
     {
         /* okay */
-        slots[capture_slot].frame_number = frame_count;
+        /* Rejected attempts consume capture time but not an MLV frame number.
+         * The in-flight gate serializes this with the worker's drop count. */
+        slots[capture_slot].frame_number = frame_count -
+            (is_m50 ? m50_profile.dma_dropped : 0);
         slots[capture_slot].status = SLOT_CAPTURING;
         frame_add_checks(capture_slot);
 
@@ -3101,6 +3313,7 @@ void process_frame(int next_fullsize_buffer_pos)
             /* M50: skip frame and continue instead of stopping recording.
              * This enables variable-fps recording when SD card can't keep up. */
             skipped_frames++;
+            m50_profile.no_slot_skips++;
             return;
         }
         else
@@ -3137,6 +3350,7 @@ void process_frame(int next_fullsize_buffer_pos)
             free_slot(capture_slot);
             m50_copy_pending = 0;
             skipped_frames++;
+            m50_profile.post_failures++;
             return;
         }
         if (raw_recording_state != RAW_PRE_RECORDING)
@@ -3174,6 +3388,14 @@ unsigned int FAST raw_rec_vsync_cbr(unsigned int unused)
     panning_update();
 
     if (!RAW_IS_RECORDING) return 0;
+    if (is_m50)
+    {
+        uint32_t now = (uint32_t)get_us_clock();
+        if (m50_profile.hooks)
+            m50_duration_add(&m50_profile.hook, now - m50_profile.last_hook);
+        m50_profile.last_hook = now;
+        m50_profile.hooks++;
+    }
     if (!raw_lv_settings_still_valid()) { raw_recording_state = RAW_FINISHING; return 0; }
     if (buffer_full) return 0;
     
@@ -3511,7 +3733,7 @@ int write_frames(FILE **pf, void *ptr, int group_size, int num_frames, int card_
         }
     }
     
-    int r = FIO_WriteFile(f, ptr, group_size);
+    int r = m50_profile_write_frames(f, ptr, group_size);
 
     if (r != group_size) /* 4GB limit or card full? */
     {
@@ -3559,7 +3781,7 @@ int write_frames(FILE **pf, void *ptr, int group_size, int num_frames, int card_
         written_chunk[card_index] = write_mlv_chunk_headers(g, mlv_chunk, card_index);
         written_total[card_index] += written_chunk[card_index];
         
-        int r2 = written_chunk[card_index] ? FIO_WriteFile(g, ptr, group_size) : 0;
+        int r2 = written_chunk[card_index] ? m50_profile_write_frames(g, ptr, group_size) : 0;
         if (r2 == group_size) /* new chunk worked, continue with it */
         {
             printf("Success!\n");
@@ -3605,6 +3827,67 @@ int write_frames(FILE **pf, void *ptr, int group_size, int num_frames, int card_
     return 1;
 }
 
+/* Exercise the actual DMA with changing known data and different strides.
+ * Source and destination live entirely in our reserved buffer. Padding inside
+ * the maintained destination span catches row-stride errors. Repeated passes
+ * also exercise reuse and cache freshness. This does not test sensor timing. */
+static int m50_dma_selftest(void)
+{
+    uint8_t *base = CACHEABLE(m50_snapshot);
+    for (int pass = 0; pass < 3; pass++)
+    {
+        for (int i = 0; i < 2048; i++) base[i] = (i * 37 + pass * 83) & 255;
+        memset(base + 2048, 0xa5, 2048);
+        int source_offset = pass == 1 ? 2 : 0; /* cropped 14-bit sources can be halfword aligned */
+        struct m50_dma_request r = {
+            .src = base + source_offset, .dst = base + 2048,
+            .src_pitch = 96, .dst_pitch = 128, .width = 64, .height = 16
+        };
+        int result = m50_dma_copy(&r);
+        if (result != M50_DMA_OK) return result;
+        for (int y = 0; y < 16; y++)
+        {
+            for (int x = 0; x < 64; x++)
+                if (base[2048 + y * 128 + x] != ((y * 96 + x + source_offset) * 37 + pass * 83) % 256)
+                    return 0;
+            if (y < 15)
+                for (int x = 64; x < 128; x++)
+                    if (base[2048 + y * 128 + x] != 0xa5) return 0;
+        }
+        for (int i = 0; i < 2048; i++)
+            if (base[i] != ((i * 37 + pass * 83) & 255)) return 0;
+    }
+    return M50_DMA_OK;
+}
+
+/* Run AFTER the self-test's cached writes, while preparation owns the
+ * suites. From here until free_buffers, snapshot access is cached read-only
+ * and all recording slots use uncached aliases. No frame-time pre-clean. */
+static int m50_dma_prepare_buffers(void)
+{
+    int result = m50_dma_prepare(m50_snapshot, configured_fullres_buf_size);
+    if (result != M50_DMA_OK) return result;
+    for (int i = 0; i < total_slot_count; i++)
+    {
+        if (!slots[i].size) continue;
+        result = m50_dma_prepare(slots[i].ptr, slots[i].size);
+        if (result != M50_DMA_OK) return result;
+    }
+    return M50_DMA_OK;
+}
+
+/* Only the writer releases a queued rejected slot: freeing in the worker
+ * would let capture reuse it while its old queue entry was still pending. */
+static int m50_discard_queued_frame(int slot_index)
+{
+    if (!is_m50 || slot_index < 0 || slots[slot_index].status != SLOT_DROPPED)
+        return 0;
+    INC_MOD(writing_queue_head, COUNT(writing_queue));
+    asm volatile ("" ::: "memory");
+    free_slot(slot_index);
+    return 1;
+}
+
 extern thunk ErrCardForLVApp_handler;
 
 /* note: called from raw_video_rec_task */
@@ -3618,6 +3901,8 @@ void init_vsync_vars()
     edmac_active = 0;
     m50_copy_pending = 0;
     skipped_frames = 0;
+    memset(&m50_profile, 0, sizeof(m50_profile));
+    m50_profile_path[0] = 0;
 }
 
 static REQUIRES(RawRecTask) EXCLUDES(settings_sem)
@@ -3670,6 +3955,12 @@ void raw_video_rec_task(uint32_t card_index)
         pre_record_triggered = !pre_record && !rec_trigger;
         pre_record_first_frame = 0;
 
+        if (is_m50 && use_h264_proxy())
+        {
+            NotifyBox(10000, "M50 test build: disable H.264 proxy.");
+            goto cleanup;
+        }
+
         if (use_h264_proxy())
         {
             /* Canon's memory layout WILL change - free our buffers now */
@@ -3719,6 +4010,36 @@ void raw_video_rec_task(uint32_t card_index)
             goto cleanup;
         }
 
+        m50_dma_recording = is_m50 && m50_dma_enabled;
+        if (m50_dma_recording)
+        {
+            m50_dma_copy = m50_raw_dma_copy_v3;
+            m50_dma_prepare = m50_raw_dma_prepare_v3;
+            if (!m50_dma_prepare || !m50_dma_copy || OUTPUT_COMPRESSION || raw_info.pitch != 3668 ||
+                raw_info.width != 2096 || raw_info.height != 1164 || lv_dispsize != 1 ||
+                video_mode_resolution != 0 || video_mode_crop != 0)
+            {
+                NotifyBox(10000, "DMA needs matching core, normal 1080p, uncompressed.");
+                goto cleanup;
+            }
+            /* RAW_PREPARING normally permits the polling task to reallocate
+             * suites. Keep the snapshot owned even through a stalled test. */
+            take_semaphore(settings_sem, 0);
+            int test = m50_dma_selftest();
+            if (test == M50_DMA_OK)
+            {
+                NotifyBox(2000, "DMA test passed. Preparing buffers...");
+                test = m50_dma_prepare_buffers();
+            }
+            give_semaphore(settings_sem);
+            if (test != M50_DMA_OK)
+            {
+                NotifyBox(10000, "DMA memory test failed (%d). Recording stopped.", test);
+                goto cleanup;
+            }
+            NotifyBox(1500, "DMA memory test passed");
+        }
+
         /* create output file */
         rec_dbg_log("rec_task: get_next_raw_movie_file_name");
         raw_movie_filename = get_next_raw_movie_file_name();
@@ -3728,6 +4049,12 @@ void raw_video_rec_task(uint32_t card_index)
             goto cleanup;
         }
         strcpy(chunk_filename[card_index], raw_movie_filename);
+        if (is_m50)
+        {
+            snprintf(m50_profile_path, sizeof(m50_profile_path), "%s", raw_movie_filename);
+            int len = strlen(m50_profile_path);
+            if (len >= 4) strcpy(m50_profile_path + len - 4, ".CSV");
+        }
         rec_dbg_log("rec_task: FIO_CreateFile");
         f = FIO_CreateFile(raw_movie_filename);
         if (!f)
@@ -3742,6 +4069,17 @@ void raw_video_rec_task(uint32_t card_index)
 
         rec_dbg_log("rec_task: init_mlv_chunk_headers");
         init_mlv_chunk_headers(&raw_info);
+        if (is_m50)
+        {
+            m50_profile.width = res_x;
+            m50_profile.height = res_y;
+            m50_profile.bits = BPP;
+            m50_profile.dma_enabled = m50_dma_recording;
+            m50_profile.canon_fps = video_mode_fps;
+            m50_profile.canon_resolution = video_mode_resolution;
+            m50_profile.canon_crop = video_mode_crop;
+            m50_profile.zoom = lv_dispsize;
+        }
         rec_dbg_log("rec_task: write_mlv_chunk_headers");
         written_total[card_index] = written_chunk[card_index] = write_mlv_chunk_headers(f, mlv_chunk, card_index);
         if (!written_chunk[card_index])
@@ -3853,6 +4191,12 @@ void raw_video_rec_task(uint32_t card_index)
         }
 
         int first_slot = writing_queue[w_head];
+        if (m50_discard_queued_frame(first_slot))
+        {
+            if (card_spanning) give_semaphore(write_queue_sem);
+            continue;
+        }
+
 
         /* check whether the first frame was filled by EDMAC (it may be sent in advance) */
         /* we need at least one valid frame */
@@ -4102,6 +4446,12 @@ abort_and_check_early_stop:
     /* wait until the other tasks calm down */
     wait_lv_frames(2);
 
+    /* M50 CPU copies can outlast two frame periods. The producer has stopped
+     * and permits only one queued/running copy. Wait for it to complete (or
+     * be discarded) before flushing or freeing any slot it could touch. */
+    if (is_m50)
+        while (m50_copy_pending) msleep(1);
+
     /* signal end of recording to the compression task */
     msg_queue_post(compress_mq, INT_MIN);
 
@@ -4228,6 +4578,11 @@ abort_and_check_early_stop:
 
 cleanup:
     rec_dbg_log("cleanup: entry");
+    if (is_m50 && card_index == 0)
+    {
+        raw_recording_state = RAW_FINISHING;
+        while (m50_copy_pending) msleep(1);
+    }
     if (f)
     {
         rec_dbg_log("cleanup: finish_chunk");
@@ -4269,6 +4624,10 @@ cleanup:
             while (RECORDING_H264) msleep(100);
             printf("H.264 stopped.\n");
         }
+
+        /* Still FINISHING: block new recording/menu setting changes until
+         * the report has been written, after the last frame write. */
+        if (is_m50) m50_profile_save();
 
         rec_dbg_log("cleanup: ResumeLiveView");
         if (!is_m50) ResumeLiveView();
@@ -4376,6 +4735,16 @@ static struct menu_entry raw_video_menu[] =
                               "14-bit compressed with Canon's Lossless JPEG. Recommended ISO < 100.\n"
                               "Signal divided by 4 before compression. Recommended ISO 100-1600.\n"
                               "Signal divided by 8/16/32/64 before compression, depending on ISO.\n"
+            },
+            {
+                .name = "M50 DMA capture",
+                .priv = &m50_dma_enabled,
+                .max = 1,
+                .choices = CHOICES("CPU baseline", "Experimental DMA"),
+                .help = "DMA capture with a memory test before each recording.",
+                .help2 = "A stalled transfer holds buffers until completion; restart the camera.\n"
+                         "Use normal 1080p LiveView and uncompressed RAW for this test build.",
+                .advanced = 1,
             },
             {
                 .name = "Preview",
@@ -4858,6 +5227,7 @@ static unsigned int raw_rec_init()
     // Hide card spanning on unsupported cams
     for (struct menu_entry *e = raw_video_menu[0].children; !MENU_IS_EOL(e); e++)
     {
+        if (!is_m50 && streq(e->name, "M50 DMA capture")) e->shidden = 1;
         if (!is_card_spanning_possible && streq(e->name, "Card Spanning"))
         {
             e->shidden = 1;
@@ -4953,5 +5323,6 @@ MODULE_CONFIGS_START()
     MODULE_CONFIG(warm_up)
     MODULE_CONFIG(sync_beep)
     MODULE_CONFIG(output_format)
+    MODULE_CONFIG(m50_dma_enabled)
     MODULE_CONFIG(h264_proxy_menu)
 MODULE_CONFIGS_END()
