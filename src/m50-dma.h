@@ -36,7 +36,8 @@ enum m50_dma_result
     M50_DMA_INVALID = -1,
     M50_DMA_STALE = -2,
     M50_DMA_TIMEOUT = -3,
-    M50_DMA_BUSY = -4
+    M50_DMA_BUSY = -4,
+    M50_DMA_RESTORE = -5 /* packer configuration or restoration check failed */
 };
 
 typedef int (*m50_dma_copy_fn)(struct m50_dma_request *request);

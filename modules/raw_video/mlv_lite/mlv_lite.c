@@ -382,9 +382,17 @@ static void *m50_snapshot; /* reserved from shoot suite, never the live source *
  * unloaded, so module_get_symbol(NULL, ...) cannot be used here. */
 extern int m50_raw_dma_copy_v3(struct m50_dma_request *) __attribute__((weak));
 extern int m50_raw_dma_prepare_v3(void *, uint32_t) __attribute__((weak));
+extern int m50_raw_dma_identity_v1(struct m50_dma_request *) __attribute__((weak));
+extern int m50_raw_dma_identity_report_v1(uint32_t *, uint32_t) __attribute__((weak));
+static uint32_t m50_pack_report[32];
+extern int m50_raw_dma_convert_test_v1(struct m50_dma_request *, uint32_t) __attribute__((weak));
+extern int m50_raw_dma_pack_v1(struct m50_dma_request *, uint32_t) __attribute__((weak));
+static int m50_pack_test_bits = 14;
 static m50_dma_copy_fn m50_dma_copy;
 static m50_dma_prepare_fn m50_dma_prepare;
 static int m50_dma_recording;
+static volatile uint32_t m50_overlay_start_ms, m50_overlay_elapsed_ms;
+static volatile int m50_overlay_started;
 static char m50_profile_path[128];
 
 static GUARDED_BY(RawRecTask)   mlv_file_hdr_t file_hdr[CARD_COUNT];
@@ -1879,6 +1887,8 @@ static int update_status(char * buffer, int buffer_size)
 
     int r = (frame_count - 1 - p);      /* recorded frames */
     int t = (r * 1000) / fps;           /* recorded time - truncated */
+    if (is_m50 && !pre_record && !rec_trigger && m50_overlay_started)
+        t = m50_overlay_elapsed_ms / 1000;
 
     /* estimate how many number of frames we can record from now on */
     int predicted_frames_left = predict_frames(
@@ -2838,9 +2848,11 @@ static void m50_profile_save(void)
     int len = snprintf(line, sizeof(line),
         "M50_TIMING_V2\nwidth,%d\nheight,%d\noutput_bits,%d\ncanon_fps,%d\n"
         "canon_resolution,%d\ncanon_crop,%d\nzoom,%d\ncopy_priority,26\n"
+        "m50_capture_revision,13\nhardware_packing,%d\n"
         "metric,count,min_us,mean_us,max_us\n",
         m50_profile.width, m50_profile.height, m50_profile.bits, m50_profile.canon_fps,
-        m50_profile.canon_resolution, m50_profile.canon_crop, m50_profile.zoom);
+        m50_profile.canon_resolution, m50_profile.canon_crop, m50_profile.zoom,
+        m50_profile.dma_enabled && m50_profile.bits != 14);
     int ok = len > 0 && len < (int)sizeof(line) && FIO_WriteFile(f, line, len) == len;
     if (ok) ok = m50_profile_write_row(f, "hooks", &m50_profile.hooks, 1);
     if (ok) ok = m50_profile_write_row(f, "busy_skips", &m50_profile.busy_skips, 1);
@@ -2963,7 +2975,7 @@ static void compress_task()
             if (is_m50)
             {
                 printf("M50: recording start (%s).\n",
-                    m50_dma_recording ? "DMA snapshots" : "CPU baseline");
+                    m50_dma_recording ? "DMA capture" : "CPU baseline");
             }
             else
             {
@@ -3053,14 +3065,14 @@ static void compress_task()
             struct m50_dma_request r = {
                 .src = (uint8_t *)fullSizeBuffer + (skip_y & ~1) * raw_info.pitch +
                        ((skip_x + 7) / 8) * 14,
-                .dst = BPP == 14 ? out_ptr : m50_snapshot,
-                .src_pitch = raw_info.pitch, .dst_pitch = res_x * 14 / 8,
+                .dst = out_ptr,
+                .src_pitch = raw_info.pitch, .dst_pitch = res_x * BPP / 8,
                 .width = res_x * 14 / 8, .height = res_y,
                 .source_time_us = queued,
                 .max_age_us = fps ? 1000000000U / fps : 33333,
-                .dst_policy = BPP == 14 ? M50_DMA_DST_UNCACHED : M50_DMA_DST_READONLY
+                .dst_policy = M50_DMA_DST_UNCACHED
             };
-            int result = m50_dma_copy(&r);
+            int result = BPP == 14 ? m50_dma_copy(&r) : m50_raw_dma_pack_v1(&r, BPP);
             m50_duration_add(&m50_profile.dma_lock, r.lock_us);
             m50_duration_add(&m50_profile.dma_transfer, r.transfer_us);
             m50_duration_add(&m50_profile.dma_wake, r.wake_us);
@@ -3094,19 +3106,10 @@ static void compress_task()
                 NotifyBox(10000, "RAW DMA stopped (%d). See timing CSV.", result);
                 continue;
             }
-            uint32_t packing_start = (uint32_t)get_us_clock();
-            if (BPP != 14)
-            {
-                const uint8_t *snapshot = CACHEABLE(m50_snapshot);
-                for (int y = 0; y < res_y; y++)
-                {
-                    uint8_t *dst = (uint8_t *)out_ptr + y * res_x * BPP / 8;
-                    const uint8_t *src = snapshot + y * res_x * 14 / 8;
-                    if (BPP == 12) m50_repack_14_to_12(dst, src, res_x);
-                    else m50_repack_14_to_10(dst, src, res_x);
-                }
-            }
-            m50_duration_add(&m50_profile.packing, (uint32_t)get_us_clock() - packing_start);
+            /* Hardware writes the final packed frame directly into its owned
+             * uncached slot. No per-frame snapshot invalidation or CPU repack.
+             * The copy remains pending through completion and state restore. */
+            m50_duration_add(&m50_profile.packing, 0);
             /* Preserve the original after-frame sentinel to detect overruns. */
         }
         else if (OUTPUT_COMPRESSION)
@@ -3231,6 +3234,21 @@ void process_frame(int next_fullsize_buffer_pos)
     {
         frame_count++;
         return;
+    }
+
+    /* Count capture time even when the worker is busy or slots are full.
+     * Updated by the capture hook only, so draining files after stop does not
+     * advance the timer. Unsigned subtraction handles the millisecond wrap. */
+    if (is_m50 && !pre_record && !rec_trigger)
+    {
+        uint32_t now = (uint32_t)get_ms_clock();
+        if (!m50_overlay_started)
+        {
+            m50_overlay_start_ms = now;
+            m50_overlay_elapsed_ms = 0;
+            m50_overlay_started = 1;
+        }
+        else m50_overlay_elapsed_ms = now - m50_overlay_start_ms;
     }
 
     /* some modules may do some specific stuff right when we started recording */
@@ -3860,6 +3878,150 @@ static int m50_dma_selftest(void)
     return M50_DMA_OK;
 }
 
+/* Closed between phases so even an unresolved hardware stall leaves a log.
+ * Runs only during RAW_PREPARING under settings_sem, on our reserved suite. */
+static int m50_pack_log(const char *phase, int result, uint32_t transfer_us)
+{
+    FILE *f = FIO_CreateFile(m50_pack_test_bits == 14 ? "M50PACK.LOG" :
+                             m50_pack_test_bits == 12 ? "M50P12.LOG" : "M50P10.LOG");
+    if (!f) return 0;
+    char line[512];
+    int n = snprintf(line, sizeof(line),
+        "M50 hardware packing v6 log\nphase,%s\nresult,%d\ntransfer_us,%d\n"
+        "identity_bus_mode,0\npacking_order,0\noutput_bits,%d\ndestination_width,%d\nwidth_pixels,256\nheight,64\nsource_offset,64\nsource_pitch,480\n"
+        "destination_offset,32832\ndestination_pitch,512\n",
+        phase, result, (int)transfer_us, m50_pack_test_bits, 256 * m50_pack_test_bits / 8);
+    int ok = n > 0 && n < (int)sizeof(line) && FIO_WriteFile(f, line, n) == n;
+    static const char *names[] = {
+        "identity_stage", "identity_failmask",
+        "before_src20", "before_src24", "before_src30", "before_srcD0",
+        "before_dst20", "before_dst24", "before_dst30", "before_dstD0",
+        "before_src28", "before_dst28",
+        "configured_src20", "configured_src24", "configured_src30", "configured_srcD0",
+        "configured_dst20", "configured_dst24", "configured_dst30", "configured_dstD0",
+        "configured_src28", "configured_dst28",
+        "restored_src20", "restored_src24", "restored_src30", "restored_srcD0",
+        "restored_dst20", "restored_dst24", "restored_dst30", "restored_dstD0",
+        "restored_src28", "restored_dst28"
+    };
+    for (unsigned i = 0; ok && i < 32; i++)
+        ok = m50_profile_write_row(f, names[i], &m50_pack_report[i], 1);
+    FIO_CloseFile(f);
+    return ok;
+}
+
+static int m50_pack_test_depth(int output_bits)
+{
+    m50_pack_test_bits = output_bits;
+    enum { BYTES = 96 * 1024, SRC = 64, DST = 32832, WIDTH = 448, HEIGHT = 64 };
+    memset(m50_pack_report, 0, sizeof(m50_pack_report));
+    if (!m50_raw_dma_identity_v1 || !m50_raw_dma_identity_report_v1 ||
+        (output_bits != 14 && !m50_raw_dma_convert_test_v1) || configured_fullres_buf_size < BYTES)
+    {
+        m50_pack_log("unavailable", -10, 0);
+        return -10;
+    }
+    uint8_t *base = CACHEABLE(m50_snapshot);
+    memset(base, 0xa5, BYTES);
+    /* Independent bitstream encoder: all 16384 possible 14-bit samples,
+     * MSB first in little-endian halfwords, plus untouched row padding. */
+    for (int y = 0; y < HEIGHT; y++)
+    {
+        uint8_t *row = base + SRC + y * 480;
+        memset(row, 0, WIDTH);
+        for (int x = 0; x < 256; x++)
+        {
+            uint32_t pixel = y * 256 + x;
+            for (int b = 0; b < 14; b++)
+            {
+                int bit = x * 14 + b;
+                row[(bit / 16) * 2 + ((bit % 16) < 8)] |=
+                    ((pixel >> (13 - b)) & 1) << (7 - bit % 8);
+            }
+        }
+    }
+    int result = m50_dma_prepare(base, BYTES);
+    if (result != M50_DMA_OK) return result;
+    if (!m50_pack_log("identity-start", 0, 0)) return -11;
+    struct m50_dma_request r = {
+        .src = base + SRC, .dst = base + DST,
+        .src_pitch = 480, .dst_pitch = 512, .width = WIDTH, .height = HEIGHT,
+        .dst_policy = M50_DMA_DST_MAINTAINED
+    };
+    result = output_bits == 14 ? m50_raw_dma_identity_v1(&r) :
+             m50_raw_dma_convert_test_v1(&r, output_bits);
+    if (m50_raw_dma_identity_report_v1(m50_pack_report, 32) != M50_DMA_OK) return -10;
+    if (!m50_pack_log("identity-returned", result, r.transfer_us)) return -11;
+    /* No cached writes since preparation. Invalidate the full allocation,
+     * including guards/source, so a DMA overrun cannot hide behind cache. */
+    int prepared = m50_dma_prepare(base, BYTES);
+    if (prepared != M50_DMA_OK) return prepared;
+    FILE *dump = FIO_CreateFile(output_bits == 14 ? "M50PACK.BIN" :
+                                output_bits == 12 ? "M50P12.BIN" : "M50P10.BIN");
+    if (!dump) return -11;
+    int dumped = FIO_WriteFile(dump, UNCACHEABLE(base), BYTES) == BYTES;
+    FIO_CloseFile(dump);
+    if (!dumped) return -11;
+    if (result != M50_DMA_OK) return result;
+    int first_mismatch = -1, guard_mismatch = -1;
+    for (int i = 0; i < BYTES; i++)
+    {
+        int off = i - SRC, pitch = 480;
+        if (i >= DST) { off = i - DST; pitch = 512; }
+        uint8_t expected = 0xa5;
+        int depth = i >= DST ? output_bits : 14;
+        int active = off >= 0 && off / pitch < HEIGHT && off % pitch < 256 * depth / 8;
+        if (active)
+        {
+            int y = off / pitch, byte = off % pitch;
+            int first_bit = (byte / 2) * 16 + ((byte & 1) ? 0 : 8);
+            expected = 0;
+            for (int b = 0; b < 8; b++)
+            {
+                int bit = first_bit + b;
+                uint32_t pixel = (y * 256 + bit / depth) >> (14 - depth);
+                expected |= ((pixel >> (depth - 1 - bit % depth)) & 1) << (7 - b);
+            }
+        }
+        if (base[i] != expected)
+        {
+            if (first_mismatch < 0) first_mismatch = i;
+            if ((!active || i < DST) && guard_mismatch < 0) guard_mismatch = i;
+        }
+    }
+    if (guard_mismatch >= 0)
+    {
+        m50_pack_log("source-or-guard-mismatch", guard_mismatch, r.transfer_us);
+        return -13;
+    }
+    if (!m50_pack_log("plain-copy-recovery-start", 1, r.transfer_us)) return -11;
+    result = m50_dma_selftest();
+    if (result == M50_DMA_OK && first_mismatch >= 0)
+    {
+        if (!m50_pack_log("pixel-mismatch-recovery-passed", first_mismatch, r.transfer_us)) return -11;
+        return -12;
+    }
+    if (!m50_pack_log(result == M50_DMA_OK ? "passed" : "plain-copy-recovery-failed",
+                      result, r.transfer_us)) return -11;
+    return result;
+}
+
+/* Keep each depth's log/dump. A pixel-only mismatch with successful recovery
+ * still permits the next private test; damaged guards/hardware errors stop. */
+static int m50_pack_identity_test(void)
+{
+    int result = m50_pack_test_depth(14);
+    if (result != M50_DMA_OK) return result;
+    int reduced_result = M50_DMA_OK;
+    for (int bits = 12; bits >= 10; bits -= 2)
+    {
+        result = m50_pack_test_depth(bits);
+        if (result != M50_DMA_OK && result != -12) return result;
+        if (result != M50_DMA_OK) reduced_result = result;
+    }
+    return reduced_result;
+}
+
 /* Run AFTER the self-test's cached writes, while preparation owns the
  * suites. From here until free_buffers, snapshot access is cached read-only
  * and all recording slots use uncached aliases. No frame-time pre-clean. */
@@ -3895,6 +4057,8 @@ extern thunk ErrCardForLVApp_handler;
 static REQUIRES(LiveViewTask)
 void init_vsync_vars()
 {
+    m50_overlay_started = 0;
+    m50_overlay_elapsed_ms = 0;
     frame_count = use_h264_proxy() ? -1 : 0;    /* see setparam_cbr */
     capture_slot = -1;
     fullsize_buffer_pos = 0;
@@ -4015,7 +4179,7 @@ void raw_video_rec_task(uint32_t card_index)
         {
             m50_dma_copy = m50_raw_dma_copy_v3;
             m50_dma_prepare = m50_raw_dma_prepare_v3;
-            if (!m50_dma_prepare || !m50_dma_copy || OUTPUT_COMPRESSION || raw_info.pitch != 3668 ||
+            if (!m50_dma_prepare || !m50_dma_copy || !m50_raw_dma_pack_v1 || OUTPUT_COMPRESSION || raw_info.pitch != 3668 ||
                 raw_info.width != 2096 || raw_info.height != 1164 || lv_dispsize != 1 ||
                 video_mode_resolution != 0 || video_mode_crop != 0)
             {
@@ -4026,6 +4190,11 @@ void raw_video_rec_task(uint32_t card_index)
              * suites. Keep the snapshot owned even through a stalled test. */
             take_semaphore(settings_sem, 0);
             int test = m50_dma_selftest();
+            if (test == M50_DMA_OK)
+            {
+                NotifyBox(3000, "Testing hardware 14/12/10-bit packing...");
+                test = m50_pack_identity_test();
+            }
             if (test == M50_DMA_OK)
             {
                 NotifyBox(2000, "DMA test passed. Preparing buffers...");

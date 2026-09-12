@@ -312,6 +312,11 @@ THUMB_FN(0xE07A623E,  EfmErscDeleteLockEntry)               // delete lock entry
 //   Ch 0x29 (41): MMIO=0xD0421100 (Mem2MemPath)
 //   Ch 0x08 ( 8): MMIO=0xD0420700 (RAW_LV_EDMAC)
 
+// Verified M50 1.1.0 packing wrappers for recording and private diagnostics.
+THUMB_FN(0xE054B99A, m50_edmac_pack_config)   // (write_channel, uint32 cfg[5])
+THUMB_FN(0xE054BA44, m50_edmac_unpack_config) // (read_channel, uint32 cfg[4])
+THUMB_FN(0xE054BAA2, m50_edmac_pack_xmode)    // (channel, 0 or 1)
+
 /**
  * STUFF BELOW IS WRONG!
  **/
